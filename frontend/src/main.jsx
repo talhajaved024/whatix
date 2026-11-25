@@ -24,6 +24,8 @@ function Tabs({tab,onChange}){
  // Roving tabindex + arrow keys, per the ARIA tabs pattern.
  const keys=e=>{const i=TABS.findIndex(([id])=>id===tab),d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!d)return;
   e.preventDefault();const next=TABS[(i+d+TABS.length)%TABS.length][0];onChange(next);document.getElementById('tab-'+next)?.focus();};
+ // On a phone the tab row scrolls sideways; keep the selected tab in view.
+ useEffect(()=>{document.getElementById('tab-'+tab)?.scrollIntoView({block:'nearest',inline:'nearest'});},[tab]);
  return <nav className="mast-tabs" role="tablist" aria-label="Workspace" onKeyDown={keys}>
   {TABS.map(([id,label])=><button key={id} id={'tab-'+id} type="button" role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>onChange(id)}>{label}</button>)}
  </nav>;

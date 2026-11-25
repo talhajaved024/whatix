@@ -124,9 +124,9 @@ export default function AssignedNumbers({id,labelledBy,onForbidden}){
    <thead><tr><th scope="col">ID</th><th scope="col">Phone</th><th scope="col">User</th><th scope="col"><span className="idle-sr">Actions</span></th></tr></thead>
    <tbody>{rows.map(row=>{const u=byName.get(row.username);
     return <tr key={row.id}>
-     <th scope="row" className="um-mono">{row.id}</th>
-     <td><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} fallback="#"/><span className="um-mono"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></td>
-     <td><span className="um-who"><strong>{u?.name||row.username}</strong><small>@{row.username}</small></span></td>
+     <th scope="row" data-label="ID" className="um-mono">{row.id}</th>
+     <td data-label="Phone"><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} fallback="#"/><span className="um-mono"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></td>
+     <td data-label="User"><span className="um-who"><strong>{u?.name||row.username}</strong><small>@{row.username}</small></span></td>
      <td><div className="an-actions">
       <button type="button" className="admin-refresh" disabled={pending} onClick={()=>openEdit(row)} aria-label={`Edit +${row.phoneNumber} for ${row.username}`}>Edit</button>
       <button type="button" className="admin-end" disabled={pending} onClick={()=>{setTarget(row);setDeleteError('');setNote('');}} aria-label={`Delete +${row.phoneNumber} for ${row.username}`}>Delete</button>

@@ -821,7 +821,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       chatAlerts={teamChat.alerts} onOpenChat={alert => teamChat.open(alert.contactId)} onDismissChat={alert => teamChat.markRead(alert.contactId)}/>{onLogout && <button type="button" className="auth-logout" onClick={onLogout}>Log out</button>}{(fullName || username) && <UserPill name={fullName || username}/>}</div></header>
     <IncomingCalls calls={calls} dispatch={dispatchCall}/>
     <TeamChatDock chat={teamChat}/>
-    <main id="panel-chat" role={nav ? "tabpanel" : undefined} aria-labelledby={nav ? "tab-chat" : undefined} hidden={!!panel}>
+    <main id="panel-chat" role={nav ? "tabpanel" : undefined} aria-labelledby={nav ? "tab-chat" : undefined} hidden={!!panel} className={view ? "has-chat" : undefined}>
       <aside className="audience">
         <div className="chat-list-heading"><h2>Chats</h2>{hasAdminAccess && <button type="button" disabled={sending} onClick={()=>setNewChatOpen(true)}>New chat</button>}</div>
         <div className="history-picker">
@@ -860,7 +860,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
         </nav>{remote.error && <div className="error" role="status">{remote.error}<button type="button" onClick={remote.retry}>Retry history sync</button></div>}{storageError && <small className="error" role="alert">{storageError}</small>}
       </aside>
       <section className="window" aria-label="Selected conversation">
-        <header className="chat-head">{groupId ? <button type="button" className="group-icon" aria-label={"View members of " + title}
+        <header className="chat-head"><button type="button" className="chat-back" aria-label="Back to chats" disabled={sending} onClick={()=>openChat("")}><Icon name="back"/></button>{groupId ? <button type="button" className="group-icon" aria-label={"View members of " + title}
           aria-haspopup="dialog" onClick={() => {setDetailsFor(groupId);refreshGroup(n => n+1);}}>
           <ContactAvatar broadcast/></button> : <ContactAvatar broadcast={isBroadcast} contactId={photoIds.get(activeKey)??activeKey}/>}
           {groupId && detailsFor === groupId && <GroupDetails title={title}

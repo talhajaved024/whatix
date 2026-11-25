@@ -103,7 +103,7 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 .link-fields label{font-size:13px;min-width:0}.link-fields input,.link-fields select{display:block;width:100%;margin-top:3px}
 .convert{margin:6px 0;gap:6px;font-size:13px}.error{font-size:13px;color:#a13026;overflow-wrap:anywhere}.error:not(:empty){margin:7px 0}
 @media(max-width:1210px){main{margin:18px;height:calc(100dvh - 106px)}}
-@media(max-width:680px){.mast{height:48px;padding:0 14px}.brand{font-size:21px}.logo{height:31px;width:31px}main{display:flex;flex-direction:column;margin:0;height:calc(100dvh - 48px);min-height:540px;border:0;border-radius:0}.audience{padding:10px 15px;border-bottom:1px solid #d2dbd1;flex:none}.audience p{font-size:12px;margin:4px 0}.audience h2{font-size:15px}#numbers{height:40px;margin:0}.audience small{font-size:11px}.window{flex:1}.chat-head{padding:8px 14px}.thread{padding:12px}.attachment{max-height:25dvh}.bubble{max-width:93%}form{padding:9px}}
+@media(max-width:680px){.brand{font-size:21px}.logo{height:31px;width:31px}main{display:flex;flex-direction:column;margin:0;border:0;border-radius:0}.window{flex:1}.attachment{max-height:25dvh}form{padding:9px}}
 .bubble.incoming{align-self:flex-start;background:#fff;border-radius:2px 12px 12px 12px}.incoming strong{display:block;margin-bottom:4px;font-size:13px;color:#22624d}
 .message-menu{float:right;display:flex;align-items:center;flex-direction:row-reverse;margin:-4px -6px 2px 6px}
 .message-chevron{width:28px;height:28px;padding:0;opacity:.65;color:#234e3e}
@@ -140,7 +140,6 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 .chat-row[aria-current=true]{background:#e0f1e6}.block-avatar{display:grid;place-items:center;width:42px;height:42px;flex:none;border-radius:10px;background:#deebe6;color:#356555}.block-avatar.broadcast{background:#e7e4f3;color:#605081}
 .row-copy{min-width:0;display:grid;gap:3px}.row-copy>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-copy strong{font-size:14px}.row-copy span,.row-copy small{font-size:12px;color:#54685d}
 .chat-head>div{min-width:0}.chat-head small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:680px){.audience{max-height:35dvh;overflow-y:auto}.chat-list-heading{margin-bottom:6px}.chat-row{padding:6px}.block-avatar{width:34px;height:34px}}
 .chat-row .block-avatar{position:relative}
 .contact-avatar{position:relative}
 .contact-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
@@ -652,5 +651,70 @@ button.reaction-person:hover{background:#f0f2f5}
 .label-number-pills{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow:auto;list-style:none;margin:8px 0 0;padding:2px}.label-number-pills li{padding:4px 11px;border-radius:999px;background:#d8f4df;color:#174d3d;font-weight:600;font-variant-numeric:tabular-nums}
 
 .label-delete-trigger{margin:0 0 6px auto;padding:4px 10px;color:#912c29}.label-delete-dialog fieldset{border:0;padding:0;margin:12px 0}.label-delete-dialog fieldset label{display:flex;align-items:flex-start;gap:10px;margin:12px 0}.label-delete-dialog fieldset small{display:block;line-height:1.4}.label-delete-dialog .idle-actions button:last-child{color:#912c29}
+
+/* Phone layout (680px and narrower). The header stacks into two rows, the chat list and the open conversation
+   each take the whole screen (the back arrow returns to the list), admin tables become cards, and form controls
+   are 16px so iOS does not zoom in on focus. Nothing here applies to wider screens. */
+.chat-back{display:none}
+@media(max-width:680px){
+  #root{display:flex;flex-direction:column;height:100dvh}
+  .mast{flex:none;height:auto;flex-wrap:wrap;gap:0 10px;padding:env(safe-area-inset-top) max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left))}
+  .mast>.brand,.mast>.mast-end{height:52px}
+  .mast>.mast-end{margin-left:auto;gap:8px}
+  .mast>.mast-tabs{order:3;flex:0 0 100%;margin-bottom:8px;scrollbar-width:none}
+  .mast>.mast-tabs::-webkit-scrollbar{display:none}
+  .mast-tabs button{padding:8px 14px;font-size:14px}
+  .auth-logout{white-space:nowrap;padding:7px 11px}
+  .waiting-panel{top:calc(env(safe-area-inset-top) + 50px);right:12px}
+
+  main:not(.auth-screen),.admin-panel{flex:1 1 auto;height:auto;min-height:0;margin:0}
+  main:not(.has-chat)>.window,main.has-chat>.audience{display:none}
+  .audience{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-right:0;padding:14px 12px calc(88px + env(safe-area-inset-bottom))}
+  .chat-list-heading{margin-bottom:10px}.chat-list-heading h2{font-size:20px}
+  .chat-list-heading button{padding:9px 16px;font-size:14px}
+  .history-picker{margin-top:0}
+  .chat-row{min-height:60px;padding:10px 8px;gap:12px}
+  .block-avatar{width:44px;height:44px}
+  .row-copy strong{font-size:16px}.row-copy span,.row-copy small{font-size:14px}
+  main:not(.auth-screen) .chat-row:not(:disabled):hover{transform:none}
+
+  .chat-back{display:flex;flex:none;width:40px;height:40px;margin-left:-4px;border-radius:50%}
+  .chat-head{padding:8px 10px;gap:8px}
+  .chat-head>div{flex:1 1 auto}
+  .chat-head h1{font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .read-preference{font-size:12px;padding:3px 9px}
+  .thread{padding:12px 10px}
+  .bubble{max-width:88%}
+  .window>form{padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+  .compose{gap:6px;align-items:flex-end}
+  .compose textarea{resize:none;padding:10px 14px}
+  .send,.clip{width:44px;height:44px}
+  body input:not([type=checkbox]):not([type=radio]):not([type=range]),body select,body textarea{font-size:16px}
+
+  .admin-panel{gap:12px;padding:16px 12px calc(88px + env(safe-area-inset-bottom))}
+  .admin-head{align-items:stretch;gap:10px}.admin-head h1{font-size:20px}
+  .um-head-actions{flex-wrap:wrap}.um-head-actions>button{flex:1}
+  .an-filter{flex:1 1 100%}.an-filter select{width:100%}
+  .requirements-filters{width:100%;margin-left:0}.requirements-filters .um-field{flex:1 1 130px}
+  /* Each table row becomes a card; the column headings move onto the cells as small labels (data-label). */
+  .admin-table-wrap{overflow:visible;margin:0;padding:0}
+  .admin-table,.admin-table.um-table{display:block;min-width:0}
+  .admin-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .admin-table tbody{display:grid;gap:10px}
+  .admin-table tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;padding:14px;border-radius:16px;background:#ffffffb8;border:1px solid #ffffffcc;box-shadow:0 4px 14px #183a3412}
+  .admin-table tbody tr.um-banned{background:#fff6f4cc}
+  .admin-table tbody th,.admin-table td,.admin-table td:last-child{display:block;min-width:0;padding:0;border:0;border-radius:0;background:none;text-align:left;overflow-wrap:anywhere}
+  .admin-table tbody tr:hover>*,.admin-table tr.um-banned>*{background:none !important}
+  .admin-table tbody th:not([data-label]),.admin-table td:not([data-label]),.admin-table td.requirement-query{grid-column:1/-1}
+  .admin-table td:empty{display:none}
+  .admin-table [data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;font-family:"Rajdhani",Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#52675e}
+  .admin-table td:not([data-label])>button{width:100%;padding:10px}
+  .an-actions{justify-content:stretch}.an-actions button{flex:1;padding:10px}
+
+  /* The team chat button would sit on top of Send and the newest messages, so it steps aside while a
+     conversation is open; it is back on the chat list and the admin tabs, and unread team messages still reach the bell. */
+  .tc-launch-wrap{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
+  body:has(main.has-chat:not([hidden])) .tc-launch-wrap{display:none}
+}
 
 .contact-label-highlight{border-radius:.32em;padding:.04em .28em;color:#11241b;box-shadow:inset 0 0 0 100vmax #ffffff57;box-decoration-break:clone;-webkit-box-decoration-break:clone}.row-copy .contact-label-highlight span{color:inherit;font-size:inherit}

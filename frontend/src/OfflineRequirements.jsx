@@ -178,13 +178,13 @@ export default function OfflineRequirements({onForbidden,onOpenChat,sending}) {
       <caption className="idle-sr">Offline Requirements</caption>
       <thead><tr>{['ID','Name','Phone','Query','Date Received','Assigned users','Actions'].map(name=><th scope="col" key={name}>{name}</th>)}</tr></thead>
       <tbody>{rows.map(row=><tr key={row.id}>
-        <th scope="row">{row.id}</th><td>{row.name}</td><td>
+        <th scope="row" data-label="ID">{row.id}</th><td data-label="Name">{row.name}</td><td data-label="Phone">
           <button type="button" className="requirement-phone um-mono" disabled={sending}
             aria-label={'Open chat with '+row.name+' at +'+row.phone}
             onClick={()=>onOpenChat(String(row.phone))}><Icon name="chat"/>+{row.phone}</button>
         </td>
-        <td className="requirement-query">{row.query}</td><td><time dateTime={row.dateReceived}>{row.dateReceived}</time></td>
-        <td>{row.assignedUsers?.length ? row.assignedUsers.map(user=>user.name || user.username).join(', ') : 'Unassigned'}</td>
+        <td data-label="Query" className="requirement-query">{row.query}</td><td data-label="Date received"><time dateTime={row.dateReceived}>{row.dateReceived}</time></td>
+        <td data-label="Assigned users">{row.assignedUsers?.length ? row.assignedUsers.map(user=>user.name || user.username).join(', ') : 'Unassigned'}</td>
         <td><button type="button" className="admin-refresh" aria-label={'Update assigned users for requirement '+row.id}
           onClick={()=>{setNotice('');setEditing(row);}}>Update</button></td>
       </tr>)}</tbody>

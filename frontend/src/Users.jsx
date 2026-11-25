@@ -105,11 +105,11 @@ export default function Users({id,labelledBy,onForbidden,superUser,signedInUsern
     <th scope="row"><button type="button" className="admin-user um-profile-link" aria-label={`Open profile for ${u.username}`} onClick={()=>setSelected(u.id)}><ContactAvatar className="admin-avatar" contactId={u.phoneNumber} fallback={String(u.name||u.username||'?').slice(0,1).toUpperCase()}/>
      <span className="um-who"><strong>{show(u.name)}</strong><small>@{show(u.username)}</small>
       {(u.isSuperUser||u.isAdmin)&&<span className="um-badges">{u.isSuperUser&&<span className="um-badge super">Super user</span>}{u.isAdmin&&!u.isSuperUser&&<span className="um-badge">Admin</span>}</span>}</span></button></th>
-    <td><span className={'um-status'+(on?' on':'')}>{on?'Signed in':'Offline'}</span>{u.banLogin&&<span className="um-badge banned">Banned</span>}</td>
-    <td className="um-mono">{show(u.phoneNumber)}</td>
-    <td>{date(u.dateCreated)}</td>
-    <td className="um-mono">{show(u.userIp)}</td>
-    <td>{showControls?<label className="um-switch" title={managed?undefined:'Only the super user can change an admin’s login access.'}><input type="checkbox" checked={!!u.banLogin} disabled={!managed||saving.has(u.id)} onChange={e=>toggleBan(u,e.target.checked)}
+    <td data-label="Status"><span className={'um-status'+(on?' on':'')}>{on?'Signed in':'Offline'}</span>{u.banLogin&&<span className="um-badge banned">Banned</span>}</td>
+    <td data-label="Phone" className="um-mono">{show(u.phoneNumber)}</td>
+    <td data-label="Created">{date(u.dateCreated)}</td>
+    <td data-label="Last IP" className="um-mono">{show(u.userIp)}</td>
+    <td data-label="Ban login">{showControls?<label className="um-switch" title={managed?undefined:'Only the super user can change an admin’s login access.'}><input type="checkbox" checked={!!u.banLogin} disabled={!managed||saving.has(u.id)} onChange={e=>toggleBan(u,e.target.checked)}
       aria-label={`Ban login for ${u.username}`}/><span aria-hidden="true"/>{saving.has(u.id)&&<small>Saving…</small>}</label>:u.banLogin?'Yes':'No'}</td>
     <td>{showControls&&on&&<button type="button" className="admin-end" disabled={!managed} title={managed?undefined:'Only the super user can end an admin’s session.'} onClick={()=>openEnd(u)} aria-label={`End ${u.username}'s session`}>End session</button>}</td>
    </tr>;})}</tbody>

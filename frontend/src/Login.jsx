@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {login,takeEndReason} from './auth.js';
-import Timelines from './Timelines.jsx';
+import Constellation from './Constellation.jsx';
 import SplitFlap from './components/SplitFlap.jsx';
 const Glyph=({d})=><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>;
 const paths={user:"M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2",lock:"M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4",eye:"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6",eyeOff:"M3 3l18 18 M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4 M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6 M9.9 9.9a3 3 0 0 0 4.2 4.2",arrow:"M5 12h14 M13 6l6 6-6 6"};
@@ -39,7 +39,7 @@ export default function Login(){
  // Pointer-tracked sheen on the glass; purely decorative, skipped for touch.
  const track=e=>{if(e.pointerType!=='mouse')return;const r=card.current.getBoundingClientRect();card.current.style.setProperty('--mx',`${e.clientX-r.left}px`);card.current.style.setProperty('--my',`${e.clientY-r.top}px`);};
  const keys=e=>setCaps(e.getModifierState?.('CapsLock'));
- return <main className="auth-screen"><div className="auth-orbs" aria-hidden="true"><i/><i/><i/></div><Timelines anchor={card}/>
+ return <main className="auth-screen"><div className="auth-orbs" aria-hidden="true"><i/><i/><i/></div><Constellation masked/>
   <form ref={card} className="auth-card" onSubmit={submit} onPointerMove={track} onAnimationEnd={e=>e.target===card.current&&e.animationName==='auth-angry'&&card.current.classList.remove('shake')} aria-busy={busy}>
    <h1 className={'auth-brand'+(brandOpen?' is-open':'')} onPointerEnter={hoverBrand(true)} onPointerLeave={hoverBrand(false)}>
     <img className="auth-mark" src="/whatix.svg" alt="Whatix! sign in"/>
