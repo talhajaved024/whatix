@@ -1,0 +1,15 @@
+.env
+data/*.db
+data/*.db-*
+data/assigned_numbers.xlsx
+data/personal-chats-*.json
+data/label-changes-*.json
+data/users.xlsx
+data/~$users.xlsx
+data/.*.tmp
+node_modules/
+data/sent-messages/
+data/broadcasts/
+data/users.xlsx.key
+data/away-replies/
+data/offline requirements.xlsx

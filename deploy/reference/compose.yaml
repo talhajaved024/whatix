@@ -1,0 +1,55 @@
+services:
+  web:
+    build:
+      context: ./app/frontend
+      args:
+        WAHA_SESSION: ${WAHA_SESSION}
+    restart: unless-stopped
+    environment:
+      SITE_HOST: ${SITE_HOST}
+    ports: ["127.0.0.1:8081:80"]
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+  api:
+    build: ./app/backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      TRUST_PROXY: "1"
+      FRONTEND_ORIGIN: https://${SITE_HOST}
+      WAHA_URL: http://waha:3000
+      WAHA_SESSION: ${WAHA_SESSION}
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      WHATIX_PASSWORD_SECRET: ${WHATIX_PASSWORD_SECRET}
+      AWAY_REPLIES_ENABLED: "false"
+      BUSY_REPLIES_ENABLED: "false"
+    volumes: ["./state/data:/app/data"]
+    depends_on: [waha]
+  waha:
+    image: ${WAHA_IMAGE}
+    restart: unless-stopped
+    shm_size: 1gb
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${DASH_PASSWORD}
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      WHATSAPP_FILES_FOLDER: /app/.media
+    volumes:
+      - waha_sessions:/app/.sessions
+      - waha_media:/app/.media
+volumes:
+  waha_sessions: {}
+  waha_media: {}
+  caddy_data: {}
+  caddy_config: {}

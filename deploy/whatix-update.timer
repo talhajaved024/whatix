@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Whatix main commit
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=whatix-update.service
+
+[Install]
+WantedBy=timers.target

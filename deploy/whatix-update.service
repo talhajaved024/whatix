@@ -1,0 +1,12 @@
+[Unit]
+Description=Build and deploy Whatix from the private repository
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/whatix
+ExecStart=/usr/local/sbin/whatix-update
+UMask=0077
+TimeoutStartSec=30min

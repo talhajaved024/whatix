@@ -1,0 +1,20 @@
+{
+    servers {
+        # Nginx reaches the loopback-published web port via the VPS Docker gateway.
+        trusted_proxies static 172.18.0.1/32
+    }
+}
+
+http://:80 {
+    handle /api/* {
+        reverse_proxy api:8080 {
+            header_up X-Forwarded-For {client_ip}
+            flush_interval -1
+        }
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

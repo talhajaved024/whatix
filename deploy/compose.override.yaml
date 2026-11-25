@@ -1,0 +1,7 @@
+services:
+  api:
+    build:
+      context: ./repo/backend
+  web:
+    build:
+      context: ./repo/frontend
