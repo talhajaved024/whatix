@@ -65,6 +65,9 @@ const sessions = new Map(); // One active session per username on this backend p
 const idleWarningMs = 5 * 60_000;
 const idleGraceMs = 2 * 60_000;
 const allowedOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+// Outside production, also accept any localhost/127.0.0.1 port so local testing isn't blocked.
+const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const isAllowedOrigin = origin => origin === allowedOrigin || (!production && localOrigin.test(origin || ''));
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
@@ -74,14 +77,14 @@ app.use(cookieParser());
 app.use((req,res,next)=>{
   res.setHeader('Cache-Control','no-store');
   res.setHeader('Vary','Origin');
-  if (req.headers.origin === allowedOrigin) {
-    res.setHeader('Access-Control-Allow-Origin',allowedOrigin);
+  if (isAllowedOrigin(req.headers.origin)) {
+    res.setHeader('Access-Control-Allow-Origin',req.headers.origin);
     res.setHeader('Access-Control-Allow-Credentials','true');
     res.setHeader('Access-Control-Allow-Headers','Content-Type');
     res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH,DELETE,OPTIONS');
   }
-  if(req.method==='OPTIONS') return res.sendStatus(req.headers.origin === allowedOrigin ? 204:403);
-  if(!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== allowedOrigin) return res.status(403).json({error:'Origin not allowed'});
+  if(req.method==='OPTIONS') return res.sendStatus(isAllowedOrigin(req.headers.origin) ? 204:403);
+  if(!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && !isAllowedOrigin(req.headers.origin)) return res.status(403).json({error:'Origin not allowed'});
   next();
 });
 // Only failed login attempts count; normal refreshes must never lock out sign-in.
@@ -783,7 +786,7 @@ const server=http.createServer(app);
 // Real-time team chat (WebSocket at /api/team-chat). Relayed live, never stored.
 // The socket closes with the sign-in session (logout, ban, revoke, role change).
 const chatRole=account=>account.username===USERNAME?'super_user':account.isAdmin?'admin':'user';
-const teamChatServer=teamChat({server,allowedOrigin,
+const teamChatServer=teamChat({server,allowedOrigin:isAllowedOrigin,
   authenticate:({cookies})=>{
     const claims=sessionClaims(cookies.wa_access,ACCESS_SECRET,'access');
     const session=claims && sessions.get(claims.sub);

@@ -1,4 +1,5 @@
 import {useEffect,useRef} from 'react';
+import {isLite} from './perf.js';
 // The background dot grid, drawn on canvas so dots can react to the cursor like grass in wind: the pointer's
 // velocity pushes nearby dots along its path, springs pull them home with a soft wobble, and the constellation
 // lines bend with them. The resting grid is cached; only disturbed dots are simulated, and the frame loop stops
@@ -69,7 +70,7 @@ export default function Constellation({masked=false}){
     if(p.d<REACH){ctx.strokeStyle=`rgba(168,233,189,${p.a*.7})`;ctx.beginPath();ctx.moveTo(pos.x,pos.y);ctx.lineTo(p.x,p.y);ctx.stroke();}
     ctx.fillStyle=`rgba(200,245,215,${Math.min(1,p.a*1.3)})`;ctx.beginPath();ctx.arc(p.x,p.y,1+p.a*1.6,0,Math.PI*2);ctx.fill();}
   }
-  const move=e=>{if(e.pointerType==='touch')return;
+  const move=e=>{if(e.pointerType==='touch'||isLite())return;// lite machines skip the canvas work entirely
    const now=e.timeStamp;if(lastMove&&now>lastMove.t){const k=1000/Math.max(8,now-lastMove.t);// px/s, smoothed
     vel={x:vel.x*.5+(e.clientX-lastMove.x)*k*.5,y:vel.y*.5+(e.clientY-lastMove.y)*k*.5};}
    lastMove={x:e.clientX,y:e.clientY,t:now};target={x:e.clientX,y:e.clientY};want=1;kick();};

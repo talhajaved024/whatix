@@ -561,7 +561,7 @@ main[hidden]{display:none !important}
   .mast-end .waiting-alerts,.mast-end .auth-logout{flex:none}
   .mast-end .user-pill{min-width:0;flex:0 1 auto}
   @container (max-width:330px){.mast-end .user-pill{padding:3px}.mast-end .user-pill-name{display:none}}
-  @container (max-width:230px){.mast-end code{display:none}}
+  @container (max-width:275px){.mast-end code{display:none}}
 }
 
 .attachment-list{max-height:35dvh;overflow:auto}
@@ -696,7 +696,14 @@ button.reaction-person:hover{background:#f0f2f5}
   .um-head-actions{flex-wrap:wrap}.um-head-actions>button{flex:1}
   .an-filter{flex:1 1 100%}.an-filter select{width:100%}
   .requirements-filters{width:100%;margin-left:0}.requirements-filters .um-field{flex:1 1 130px}
-  /* Each table row becomes a card; the column headings move onto the cells as small labels (data-label). */
+  /* The team chat button would sit on top of Send and the newest messages, so it steps aside while a
+     conversation is open; it is back on the chat list and the admin tabs, and unread team messages still reach the bell. */
+  .tc-launch-wrap{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
+  body:has(main.has-chat:not([hidden])) .tc-launch-wrap{display:none}
+}
+/* Narrow windows (phones, and a laptop window snapped to half the screen): each table row becomes a card and
+   the column headings move onto the cells as small labels (data-label), so nothing scrolls sideways. */
+@media(max-width:900px){
   .admin-table-wrap{overflow:visible;margin:0;padding:0}
   .admin-table,.admin-table.um-table{display:block;min-width:0}
   .admin-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
@@ -710,11 +717,79 @@ button.reaction-person:hover{background:#f0f2f5}
   .admin-table [data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;font-family:"Rajdhani",Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#52675e}
   .admin-table td:not([data-label])>button{width:100%;padding:10px}
   .an-actions{justify-content:stretch}.an-actions button{flex:1;padding:10px}
-
-  /* The team chat button would sit on top of Send and the newest messages, so it steps aside while a
-     conversation is open; it is back on the chat list and the admin tabs, and unread team messages still reach the bell. */
-  .tc-launch-wrap{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
-  body:has(main.has-chat:not([hidden])) .tc-launch-wrap{display:none}
 }
+@media(min-width:681px) and (max-width:900px){.admin-table tbody tr{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Small and low-resolution laptop screens (wider than a phone). Three independent adjustments:
+   width up to 1400px  - the workspace uses the whole window instead of a centred 1170px column;
+   width below 1080px  - the header sheds the user's name, then the session name, then the brand word, so the tabs fit;
+   height up to 800px  - a shorter header and tighter spacing, so more chats, messages and rows are visible.
+   Nothing can push the page itself into scrolling: only the lists and the thread scroll. */
+.auth-logout{white-space:nowrap}
+body{overflow-x:clip}
+@media(min-width:901px){.admin-table thead th{position:sticky;top:0;z-index:1;background:#e9f1ecf7}}
+@media(min-width:681px) and (max-width:1400px){
+  main:not(.auth-screen),.admin-panel{max-width:none;margin:12px;height:calc(100dvh - 94px);min-height:0}
+  main:not(.auth-screen){grid-template-columns:minmax(220px,min(29%,340px)) minmax(0,1fr)}
+  /* The workspace now reaches the corner where the team chat button floats: give the button its own slot. */
+  .tc-launch-wrap{margin-bottom:18px}.tc-launch{width:48px;height:48px}.tc-launch svg{width:23px;height:23px}
+  .tc-panel{bottom:60px}
+  .window>form{padding:10px 76px 10px 14px}
+  .admin-table-wrap::after{content:"";display:block;height:52px}
+  .admin-panel>.um-form{margin-bottom:52px}
+}
+@media(min-width:681px) and (max-width:1079px){
+  .mast{gap:12px;padding:0 14px}
+  .mast>.brand,.mast>.mast-end{flex:none}
+  .mast>.mast-end{gap:8px}
+  .mast>.mast-tabs{flex:0 1 auto;scrollbar-width:none}
+  .mast>.mast-tabs::-webkit-scrollbar{display:none}
+  .mast-tabs button{padding:6px 11px;font-size:13px}
+  .user-pill{max-width:42px;padding:3px}.user-pill-name{display:none}
+}
+@media(min-width:681px) and (max-width:959px){.mast code{display:none}}
+@media(min-width:681px) and (max-width:859px){.mast>.brand{gap:0;font-size:0}}
+@media(min-width:681px) and (max-height:800px){
+  .mast{height:56px}.brand{font-size:22px}.logo{width:32px;height:32px}
+  main:not(.auth-screen),.admin-panel{height:calc(100dvh - 76px);min-height:0;margin-block:10px}
+  .audience{padding:14px}
+  .chat-list-heading{margin-bottom:8px}
+  .history-picker{margin-top:8px;gap:4px}
+  .history-picker select{padding:7px 10px}
+  .chat-row{padding:7px 8px}
+  .block-avatar{width:38px;height:38px}
+  .chat-head{padding:9px 16px}
+  .thread{padding:12px 16px;gap:8px}.thread-content{gap:8px}
+  .bubble{padding:8px 12px}
+  .admin-panel{gap:10px;padding:14px 18px}
+  .admin-head h1{font-size:20px;margin-bottom:2px}
+  .admin-table{border-spacing:0 5px}
+  .admin-table tbody th,.admin-table td{padding-block:8px}
+  .um-form{gap:10px 16px;padding:16px}
+}
+@media(min-width:681px) and (max-height:600px){
+  .mast{height:48px}
+  main:not(.auth-screen),.admin-panel{height:calc(100dvh - 60px);margin-block:6px}
+  .tc-launch-wrap{margin-bottom:13px}
+  .window>form{padding-block:7px}
+  .audience{padding:10px 12px}
+  .chat-head{padding:6px 14px}
+  .block-avatar{width:34px;height:34px}
+}
+
+/* Light rendering for weak machines (old laptops, integrated graphics). src/perf.js sets data-perf="lite" from
+   the core and memory counts or after measuring slow frames. The layout is identical; only the expensive paint
+   work goes: frosted-glass blur, the drifting background, the cursor constellation and decorative loops. */
+:root[data-perf=lite] *{-webkit-backdrop-filter:none !important;backdrop-filter:none !important}
+:root[data-perf=lite] body::before{animation:none}
+:root[data-perf=lite] .constellation{display:none}
+:root[data-perf=lite] :is(main:not(.auth-screen),.admin-panel){background:#f4f8f5}
+:root[data-perf=lite] .mast{background:var(--a-mast)}
+:root[data-perf=lite] .auth-card{background:#173f37f2}
+:root[data-perf=lite] .incoming-call{background:#17463e}
+:root[data-perf=lite] :is(.idle-dialog,.waiting-panel,.popover,.app-crash){background:#fcfefc}
+:root[data-perf=lite] .app-alert{background:#fff1ef}
+:root[data-perf=lite] .bubble{box-shadow:0 1px 2px #183a3426}
+:root[data-perf=lite] :is(.bubble,.unread-count,.attachment,.popover,.admin-table tbody tr,.auth-orbs i,.mast code::before,.empty>svg,.admin-empty svg,.um-status.on::before){animation:none}
 
 .contact-label-highlight{border-radius:.32em;padding:.04em .28em;color:#11241b;box-shadow:inset 0 0 0 100vmax #ffffff57;box-decoration-break:clone;-webkit-box-decoration-break:clone}.row-copy .contact-label-highlight span{color:inherit;font-size:inherit}

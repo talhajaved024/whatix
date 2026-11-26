@@ -1,3 +1,4 @@
+import './perf.js';
 import React, {Component,useCallback,useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.jsx';

@@ -236,7 +236,8 @@ export function teamChat({server,authenticate,directory,allowedOrigin,now=Date.n
     try{pathname=new URL(req.url,'http://localhost').pathname;}catch{reject(socket,400,'Bad Request');return true;}
     if(pathname!==CHAT_PATH)return false;
     // Browsers always send Origin on WebSocket requests; block other sites.
-    if(req.headers.origin && req.headers.origin!==allowedOrigin){reject(socket,403,'Forbidden');return true;}
+    const originOk=typeof allowedOrigin==='function'?allowedOrigin(req.headers.origin):req.headers.origin===allowedOrigin;
+    if(req.headers.origin && !originOk){reject(socket,403,'Forbidden');return true;}
     const auth=authenticate({cookies:parseCookies(req.headers.cookie),headers:req.headers});
     if(!auth){reject(socket,401,'Unauthorized');return true;}
     wss.handleUpgrade(req,socket,head,ws=>connected(ws,auth));
