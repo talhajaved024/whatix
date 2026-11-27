@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up the Whatix database (and optionally WAHA sessions)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/whatix
+EnvironmentFile=-/etc/whatix-backup.env
+ExecStart=/usr/local/sbin/whatix-backup
+UMask=0077
+TimeoutStartSec=30min

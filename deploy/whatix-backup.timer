@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Whatix backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=whatix-backup.service
+
+[Install]
+WantedBy=timers.target
