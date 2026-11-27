@@ -1,5 +1,8 @@
 services:
   api:
+    environment:
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${DASH_PASSWORD}
     build:
       context: ./repo/backend
   web:

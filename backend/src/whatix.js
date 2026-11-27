@@ -1,8 +1,8 @@
-import {readFile,readdir} from 'node:fs/promises';
-import {join,dirname} from 'node:path';
+import {chmod,readFile,readdir} from 'node:fs/promises';
+import {basename,join,dirname} from 'node:path';
 import {hkdfSync} from 'node:crypto';
 import ExcelJS from 'exceljs';
-import {connectDatabase,schema} from './sqlite.js';
+import {connectDatabase,schema,campaignSchema,auditSchema,indexSchema,labelScopeSchema,receivedBySchema,passwordChangeSchema,SCHEMA_VERSION} from './sqlite.js';
 import {hashPassword,passwordCipher,verifierPattern} from './accounts.js';
 
 async function optional(action){
@@ -98,18 +98,57 @@ async function importRecords(s,dir){
       await copy('broadcasts:'+session,name,join(queue,session,name));
   }
 }
+// Campaign grants saved by the first campaign build lived as JSON in
+// app_records. Grants for deleted users and invalid values are dropped.
+async function importCampaignRecords(s){
+  const rows=await s.all("SELECT value FROM app_records WHERE namespace='campaign-grants:v1'");
+  for(const {value} of rows){
+    let grant;try{grant=JSON.parse(value);}catch{continue;}
+    const {name,phone,userId}=grant||{};
+    if(typeof name!=='string' || !/^[1-9]\d{0,14}$/.test(String(phone)) || !Number.isSafeInteger(userId))continue;
+    if(!await s.get('SELECT 1 FROM users WHERE ID=?',[userId]))continue;
+    await s.run('INSERT OR IGNORE INTO campaign_grants(session,campaign_phone,user_id) VALUES(?,?,?)',[name,String(phone),userId]);
+    const {ID:id}=await s.get('SELECT ID FROM campaign_grants WHERE session=? AND campaign_phone=? AND user_id=?',[name,String(phone),userId]);
+    for(const label of Array.isArray(grant.labels)?grant.labels:[])
+      if(typeof label==='string')await s.run('INSERT OR IGNORE INTO campaign_grant_labels VALUES(?,?)',[id,label]);
+    for(const contact of Array.isArray(grant.contacts)?grant.contacts:[])
+      if(Number.isSafeInteger(contact?.phoneNumber) && contact.phoneNumber>0 && contact.phoneNumber<=999999999999999)
+        await s.run('INSERT OR IGNORE INTO campaign_contacts(grant_id,phone_number) VALUES(?,?)',[id,contact.phoneNumber]);
+  }
+  await s.run("DELETE FROM app_records WHERE namespace='campaign-grants:v1'");
+}
 export async function openWhatix(options){
   const db=await connectDatabase(options.path);
   try{
+    // Schema upgrades are one-way, so an existing database is copied first:
+    // restoring that copy (with the previous release) undoes the upgrade.
+    const {user_version:current}=await db.use(s=>s.get('PRAGMA user_version'));
+    if(current>0 && current<SCHEMA_VERSION && options.path!==':memory:'){
+      const copy=options.path+'.pre-v'+SCHEMA_VERSION+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.bak';
+      await db.use(s=>s.exec("VACUUM INTO '"+copy.replaceAll("'","''")+"'"));
+      await chmod(copy,0o600).catch(()=>{});
+      console.log('Database backed up before upgrade to '+basename(copy));
+    }
     const cipher=passwordCipher(Buffer.from(hkdfSync('sha256',options.secret,'whatix','account verifiers v1',32)));
     await db.transaction(async s=>{
       const {user_version:version}=await s.get('PRAGMA user_version');
+      if(version>SCHEMA_VERSION)throw Error('Unsupported Whatix database schema');
       if(version===0){
         await s.exec(schema);
         await importWorkbooks(s,options,cipher);
         await importRecords(s,dirname(options.usersPath));
-        await s.exec('PRAGMA user_version=1');
-      }else if(version!==1)throw Error('Unsupported Whatix database schema');
+      }
+      // Each step runs once, inside this startup transaction.
+      if(version<2){
+        await s.exec(campaignSchema);
+        await importCampaignRecords(s);
+      }
+      if(version<3)await s.exec(auditSchema);
+      if(version<4)await s.exec(indexSchema);
+      if(version<5)await s.exec(labelScopeSchema);
+      if(version<6)await s.exec(receivedBySchema);
+      if(version<7)await s.exec(passwordChangeSchema);
+      if(version!==SCHEMA_VERSION)await s.exec('PRAGMA user_version='+SCHEMA_VERSION);
       const account=await s.get('SELECT ID,USER_NAME,PASSWORD FROM users WHERE USER_NAME=? AND IS_ADMIN=1',[options.admin]);
       if(!account)throw Error('Configured super user missing from Whatix database');
       cipher.open(account.PASSWORD,account.ID,account.USER_NAME);

@@ -20,6 +20,7 @@ export function sentMessages(store,session){
     return {mine,hidden:mine && entry.hidden,revocationRequested:entry?.revocationRequested??false};
   }
   return {
+    async chatFor(id,userId){const row=await read(id);return row?.userId===userId?row.chatId:null;},
     record(id,chatId,userId){
       return change(id,async()=>{
         if(!await read(id))await save(id,{userId,chatId,hidden:false,revocationRequested:false});

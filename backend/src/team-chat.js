@@ -66,7 +66,7 @@ function reject(socket,status,text){
 
 // authenticate({cookies, headers}) -> null | {user:{id,username,name,role}, register(close) -> unregister}
 // directory() -> Promise<[{id,username,name,role}]> of accounts allowed to chat.
-export function teamChat({server,authenticate,directory,allowedOrigin,now=Date.now,pingMs=30_000,dailyReset=true}){
+export function teamChat({server,authenticate,directory,allowedOrigin,otherUpgrade,now=Date.now,pingMs=30_000,dailyReset=true}){
   const wss=new WebSocketServer({noServer:true,maxPayload:64*1024});
   const online=new Map(); // userId -> {user, sockets:Set<WebSocket>}
   const waiting=new Map(); // userId -> messages for when they next connect (memory only)
@@ -195,10 +195,14 @@ export function teamChat({server,authenticate,directory,allowedOrigin,now=Date.n
     entry.user=user;
     entry.sockets.add(ws);
     ws.alive=true;
-    const sent=[];
+    // Shared by all of this person's sockets, so extra tabs don't multiply the rate.
+    entry.sent??=[];
+    const sent=entry.sent;
     let closed=false;
     const unregister=auth.register(reason=>{
-      if(ws.readyState===ws.OPEN)ws.close(reason==='admin_revoked'?4001:4000,reason==='admin_revoked'?'Session revoked':'Session ended');
+      // 4001: ended by an admin; 4002: the account signed in elsewhere; 4000: other endings.
+      const code=reason==='admin_revoked'?4001:reason==='signed_in_elsewhere'?4002:4000;
+      if(ws.readyState===ws.OPEN)ws.close(code,code===4001?'Session revoked':code===4002?'Signed in elsewhere':'Session ended');
       else ws.terminate();
     });
     const me=()=>online.get(user.id)?.user??user;
@@ -244,7 +248,9 @@ export function teamChat({server,authenticate,directory,allowedOrigin,now=Date.n
     return true;
   }
   server.on('upgrade',(req,socket,head)=>{
-    if(!upgrade(req,socket,head))reject(socket,404,'Not Found');
+    if(upgrade(req,socket,head))return;
+    if(otherUpgrade && otherUpgrade(req,socket,head,{authenticate,parseCookies,allowedOrigin,reject}))return;
+    reject(socket,404,'Not Found');
   });
   // Drop connections that stopped answering (sleeping laptop, lost network).
   const heartbeat=setInterval(()=>{

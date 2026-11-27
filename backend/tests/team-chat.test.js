@@ -40,7 +40,7 @@ test('team chat relays messages live with role rules',{timeout:30000},async t=>{
   };
   const superCookie=await login('tester');
   const created=await fetch(base+'/admin/users',{method:'POST',headers:{Cookie:superCookie,'Content-Type':'application/json'},
-    body:JSON.stringify({username:'carol',name:'Carol Admin',password,isAdmin:true})});
+    body:JSON.stringify({username:'carol',name:'Carol Admin',password,phoneNumber:923001110043,isAdmin:true})});
   assert.equal(created.status,201);
 
   async function connect(Cookie,headers={}){

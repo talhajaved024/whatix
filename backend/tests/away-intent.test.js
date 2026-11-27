@@ -280,7 +280,7 @@ test('decline, Oky and What do not initiate edits; a confirmed callback edit pre
   await say('Yes');
   assert.equal((await store.lookup(keys)).phone,15550100002);
   assert.equal((await store.list(requirementRange({from:'2026-11-21',to:'2026-11-21'})))[0].query,'Website');
-  assert.deepEqual(await store.numbersFor(7),[15550100001]);
+  assert.deepEqual(await store.numbersFor(7,'main',true),[15550100001]);   // intake rows belong to the main number
 });
 
 test('plural new requirements invite details and a qualified ERP enquiry is saved once',async t=>{

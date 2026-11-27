@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {authorizedFetch} from './auth.js';
 import ContactAvatar from './components/ContactAvatar.jsx';
+import {usernameProblem} from './usernames.js';
 
 function fields(profile){
  return {name:profile.name??'',username:profile.username,phoneNumber:String(profile.phoneNumber??''),
@@ -10,7 +11,7 @@ function fields(profile){
 async function profileError(response){
  if(response.status===409)return 'That username is already taken. Choose another.';
  if(response.status===503)return 'The user workbook is unavailable. Please try again.';
- if(response.status===400)return 'Check the name, username, phone number and new password, then try again.';
+ if(response.status===400){const body=await response.json().catch(()=>null);return body?.error||'Check the name, username, phone number and new password, then try again.';}
  const body=await response.json().catch(()=>null);
  return body?.error||'The request failed (HTTP '+response.status+'). Please try again.';
 }
@@ -53,10 +54,17 @@ export default function UserProfile({accountId,handled,onClose,onUpdated,superUs
   }
  }
  const editable=profile&&profile.username!==signedInUsername&&!profile.isSuperUser&&(superUser||!profile.isAdmin);
+ // Checked only when the username is changed, so older accounts stay editable.
+ const usernameIssue=changes.username!==undefined?usernameProblem(changes.username):'';
+ // Name, username and phone are required on every save; the password only when changing it.
+ const phoneIssue=!form?'':!form.phoneNumber?'Required. Enter the number with country code.':
+  !/^[1-9][0-9]{6,14}$/.test(form.phoneNumber)?'Use 7 to 15 digits with country code, no leading 0.':'';
+ const nameIssue=form && !form.name.trim()?'Enter a name.':'';
+ const blocked=!!(usernameIssue||phoneIssue||nameIssue);
  const dirty=Object.keys(changes).length>0,locked=!editable||!!pending;
  function edit(key,value){setForm(previous=>({...previous,[key]:value}));setError('');setNote('');}
  async function mutate(method){
-  if(locked||(method==='PATCH'&&!dirty))return;
+  if(locked||(method==='PATCH'&&(!dirty||blocked)))return;
   setPending(method);setError('');setNote('');
   try{
    const options=method==='PATCH'?{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(changes)}:{method};
@@ -85,17 +93,20 @@ export default function UserProfile({accountId,handled,onClose,onUpdated,superUs
     <div><dt>Session status</dt><dd>{profile.sessionId!=null?'Signed in':'Offline'}</dd></div>
    </dl>
    <form className="um-form" aria-label="User profile" onSubmit={event=>{event.preventDefault();void mutate('PATCH');}}>
-    <label className="um-field">Name<input required maxLength={128} pattern={'.*\\S.*'} value={form.name} disabled={locked} onChange={e=>edit('name',e.target.value)}/></label>
-    <label className="um-field">Username<input required maxLength={64} pattern={'\\S(?:.*\\S)?'} title={superUser?'Remove leading and trailing spaces.':'Only the super user can change usernames.'} value={form.username} disabled={locked||!superUser} onChange={e=>edit('username',e.target.value)}/></label>
-    <label className="um-field">Phone number<input type="tel" inputMode="numeric" maxLength={15} pattern="[1-9][0-9]{0,14}" title="Enter a positive number of up to 15 digits." value={form.phoneNumber} disabled={locked} onChange={e=>edit('phoneNumber',e.target.value)}/></label>
-    <label className="um-field">New password<input type="password" autoComplete="new-password" minLength={8} maxLength={256} aria-describedby="profile-password-hint" value={form.password} disabled={locked} onChange={e=>edit('password',e.target.value)}/>
-     <small id="profile-password-hint">Leave blank to keep the current password.</small></label>
+    <label className="um-field"><span className="um-label">Name</span><input required maxLength={128} pattern={'.*\\S.*'} aria-invalid={!!nameIssue||undefined} value={form.name} disabled={locked} onChange={e=>edit('name',e.target.value)}/>
+     {editable&&nameIssue&&<small className="um-error">{nameIssue}</small>}</label>
+    <label className="um-field"><span className="um-label">Username</span><input required maxLength={64} spellCheck={false} autoCapitalize="none" aria-invalid={!!usernameIssue||undefined} aria-describedby={superUser?'profile-username-hint':undefined} title={superUser?'Lowercase letters, no spaces.':'Only the super user can change usernames.'} value={form.username} disabled={locked||!superUser} onChange={e=>edit('username',e.target.value)}/>
+     {superUser&&editable&&<small id="profile-username-hint" className={usernameIssue?'um-error':undefined}>{usernameIssue||'Lowercase letters, no spaces.'}</small>}</label>
+    <label className="um-field"><span className="um-label">Phone number</span><input type="tel" inputMode="numeric" required maxLength={15} pattern="[1-9][0-9]{6,14}" title="7 to 15 digits with country code, no leading 0." aria-invalid={!!phoneIssue||undefined} aria-describedby="profile-phone-hint" value={form.phoneNumber} disabled={locked} onChange={e=>edit('phoneNumber',e.target.value)}/>
+     {editable&&<small id="profile-phone-hint" className={phoneIssue?'um-error':undefined}>{phoneIssue||'Required · with country code.'}</small>}</label>
+    <label className="um-field"><span className="um-label">New password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={256} aria-describedby="profile-password-hint" value={form.password} disabled={locked} onChange={e=>edit('password',e.target.value)}/>
+     <small id="profile-password-hint">Leave blank to keep the current password. A new one here must be replaced by the user at their next sign-in.</small></label>
     <div className="um-checks">
      <label><input type="checkbox" checked={form.banLogin} disabled={locked} onChange={e=>edit('banLogin',e.target.checked)}/>Ban login</label>
      <label><input type="checkbox" checked={form.isAdmin} disabled={locked||!superUser} onChange={e=>edit('isAdmin',e.target.checked)}/>Is admin</label>
     </div>
     {editable&&<div className="um-form-actions um-profile-actions">
-     <button type="submit" className="um-primary" disabled={!dirty||locked}>{pending==='PATCH'?'Updating…':'Update'}</button>
+     <button type="submit" className="um-primary" disabled={!dirty||locked||blocked}>{pending==='PATCH'?'Updating…':'Update'}</button>
      <button type="button" className="admin-end" disabled={locked} onClick={()=>dialog.current.showModal()}>Delete</button>
     </div>}
    </form>

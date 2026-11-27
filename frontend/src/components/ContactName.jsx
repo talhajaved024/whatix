@@ -1,10 +1,13 @@
 import {ContactHighlight} from "./LabelHighlights.jsx";
 import {useEffect,useRef,useState} from "react";
 import {authorizedFetch,onAuthChange} from "../auth.js";
+import {onInboxChange} from "../inbox.js";
 import {memberId,phoneId} from "../group-members.js";
 
 const cache = new Map();
 onAuthChange(signedIn => { if (!signedIn) cache.clear(); });
+// A contact's saved name differs per WhatsApp account.
+onInboxChange(() => cache.clear());
 
 function lookup(id) {
   const cached = cache.get(id);

@@ -10,6 +10,10 @@ function contactId(value){
   return /^[1-9]\d{6,14}$/.test(digits)?digits+'@c.us':null;
 }
 
+// WAHA's labels API also returns WhatsApp's built-in chat filters (Unread,
+// Favourites, Groups: types 1-3). Only these types are business labels.
+export const isBusinessLabel=label=>label?.id!=null && label.isActive!==false && [0,4,5,16].includes(Number(label.type??0));
+
 export function businessLabelRoutes(base,session,headers,adminAccess){
   const router=express.Router();
   const endpoint=base+'/api/'+encodeURIComponent(session)+'/labels';
@@ -22,7 +26,8 @@ export function businessLabelRoutes(base,session,headers,adminAccess){
     if(!response.ok){
       const detail=await response.json().catch(()=>null);
       const status=[400,404,409,422,429].includes(response.status)?response.status:502;
-      const message=typeof detail?.message==='string' && status!==502?detail.message.slice(0,220):'WAHA could not complete the label request';
+      // Name WAHA's status so an import's failures can be told apart.
+      const message=typeof detail?.message==='string' && status!==502?detail.message.slice(0,220):'WAHA could not complete the label request (HTTP '+response.status+')';
       throw Object.assign(new Error(message),{status});
     }
     if(method==='PUT'){await response.body?.cancel();return;}
@@ -34,14 +39,15 @@ export function businessLabelRoutes(base,session,headers,adminAccess){
   router.post('/import-preview',express.raw({type:'application/octet-stream',limit:'10mb'}),async(req,res)=>{
     if(!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:'Upload an Excel .xlsx workbook.'});
     try{
-      const preview=await previewLabelWorkbook(req.body,req.query.project);
+      const country=typeof req.query.country==='string'?req.query.country:'';
+      const preview=await previewLabelWorkbook(req.body,{country});
       res.set('Cache-Control','no-store').json(preview);
     }catch(error){failure(res,error);}
   });
   router.post('/',adminAccess,async(req,res)=>{
     const {name,color=0}=req.body||{};
     if(typeof name!=='string'||!name.trim()||!Number.isInteger(color)||color<0||color>19)
-      return res.status(400).json({error:'Enter a label name and a color number from 0 to 19'});
+      return res.status(400).json({error:'Enter a campaign name and a color number from 0 to 19'});
     try{
       const label=await request(endpoint,'POST',{name:name.trim(),color});
       if(label?.id==null)throw new Error('Missing label ID');
@@ -68,7 +74,7 @@ export function businessLabelRoutes(base,session,headers,adminAccess){
       const labels=await request();
       const target=labels.find(label=>String(label.id)===id);
       if(!target)throw Object.assign(new Error('Label no longer exists'),{status:404});
-      if(target.isActive===false||![0,4,5,16].includes(Number(target.type??0)))
+      if(!isBusinessLabel(target))
         throw Object.assign(new Error('Choose an active business label'),{status:422});
       const path=endpoint+'/chats/'+encodeURIComponent(chatId);
       const readIds=async()=>{

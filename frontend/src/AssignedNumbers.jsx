@@ -1,45 +1,58 @@
 import {ContactHighlight} from "./components/LabelHighlights.jsx";
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {authorizedFetch,checkSession} from './auth.js';
+import {SESSION,useInboxSession} from './inbox.js';
+import {campaignClient,loadCampaigns} from './campaign-directory.js';
 import ContactAvatar from './components/ContactAvatar.jsx';
 import AssignContacts from './components/AssignContacts.jsx';
-// Admin / super-user tab: which phone numbers each regular user may work with.
-// Only regular users can be assignees; the backend rejects admins and super users with 422.
+import Dropdown from './components/Dropdown.jsx';
+import Icon from './components/Icon.jsx';
+import Initials from './components/Initials.jsx';
+import './campaigns.css';
+import Pagination,{pageQuery,useDebounced} from './components/Pagination.jsx';
+// Admin / super-user tab: which customers each regular user handles inside one
+// campaign number. A user must have the campaign (Assign WA Num tab) first;
+// the backend answers 422 otherwise.
 const POLL=30000,PHONE=/^[1-9]\d{0,14}$/;
-const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const offline=err=>err instanceof TypeError?'Could not reach the server. Check your connection and try again.':err.message;
-const failure=async(response,fallback)=>{const body=await response.json().catch(()=>null);return new Error(typeof body?.error==='string'?body.error:fallback+' (HTTP '+response.status+').');};
+const failure=async(response,fallback)=>{const body=await response.json().catch(()=>null);return Object.assign(new Error(typeof body?.error==='string'?body.error:fallback+' (HTTP '+response.status+').'),{status:response.status});};
 // "+92 300 123-4567" → "923001234567"
 export const phoneDigits=value=>String(value??'').replace(/[+\s()\-]/g,'');
+const userOption=u=>({value:u.username,label:u.name||u.username,description:'@'+u.username,icon:'person'});
+const when=iso=>{const d=new Date(iso);return isNaN(d)?'':d.toLocaleDateString([],{day:'numeric',month:'short',year:d.getFullYear()===new Date().getFullYear()?undefined:'numeric'});};
 export default function AssignedNumbers({id,labelledBy,onForbidden}){
- const [rows,setRows]=useState(null);const[users,setUsers]=useState(null);const[filter,setFilter]=useState('');
+ const [campaigns,setCampaigns]=useState(null);const[selected,setSelected]=useState('');
+ const [rows,setRows]=useState(null);const[users,setUsers]=useState(null);const[grantees,setGrantees]=useState(null);const[filter,setFilter]=useState('');
  const [error,setError]=useState('');const[note,setNote]=useState('');const[updated,setUpdated]=useState(0);
  const [form,setForm]=useState(null);const[formError,setFormError]=useState('');const[saving,setSaving]=useState(false);
  const [adding,setAdding]=useState(false);
  const [target,setTarget]=useState(null);const[deleting,setDeleting]=useState(false);const[deleteError,setDeleteError]=useState('');
- const live=useRef(true),seq=useRef(0),formDialog=useRef(null),deleteDialog=useRef(null);
- const handled=useCallback(response=>{
-  if(response.status===403){onForbidden();return true;}
-  if(response.status===401){checkSession().catch(()=>{});return true;}
+ const [page,setPage]=useState(1);const[search,setSearch]=useState('');const query=useDebounced(search.trim());
+ const [total,setTotal]=useState(0);const[fetching,setFetching]=useState(false);
+ const live=useRef(true),seq=useRef(0),shownView=useRef(''),formDialog=useRef(null),deleteDialog=useRef(null);
+ const campaign=campaigns?.find(c=>c.name===selected)||null;
+ // Follow the WA number chosen in the inbox picker (chat sidebar, Add Number tab): switching
+ // there switches this tab and its Assign contacts list too. A choice made here still stands until then.
+ const openInbox=useInboxSession();
+ useEffect(()=>{setSelected(prev=>campaigns?.some(c=>c.name===openInbox)?openInbox:prev);setPage(1);},[openInbox]);
+ const handled=useCallback(status=>{
+  if(status===403){onForbidden();return true;}
+  if(status===401){checkSession().catch(()=>{});return true;}
   return false;
  },[onForbidden]);
- // The newest request wins, so a slow response for an old filter can't overwrite the current one.
- const load=useCallback(async()=>{
-  const mine=++seq.current;
+ // Connected campaign numbers; the inbox open in this tab is chosen first.
+ const loadNumbers=useCallback(async()=>{
   try{
-   const response=await authorizedFetch('/api/assigned-numbers'+(filter?'?'+new URLSearchParams({username:filter}):''),{cache:'no-store'});
-   if(!live.current||mine!==seq.current||handled(response))return;
-   if(!response.ok)throw await failure(response,'The assigned numbers could not be loaded');
-   const body=await response.json();if(!live.current||mine!==seq.current)return;
-   const list=Array.isArray(body?.assignments)?body.assignments:[];
-   list.sort((a,b)=>String(a.username).localeCompare(String(b.username))||a.phoneNumber-b.phoneNumber);
-   setRows(list);setError('');setUpdated(Date.now());
-  }catch(err){if(live.current&&mine===seq.current)setError(offline(err));}
- },[filter,handled]);
+   const {campaigns:list}=await loadCampaigns();
+   if(!live.current)return;
+   setCampaigns(list);
+   setSelected(prev=>list.some(c=>c.name===prev)?prev:(list.find(c=>c.name===SESSION)||list[0])?.name||'');
+  }catch(err){if(live.current&&!handled(err.status))setError(offline(err));}
+ },[handled]);
  const loadUsers=useCallback(async()=>{
   try{
    const response=await authorizedFetch('/api/admin/users',{cache:'no-store'});
-   if(!live.current||handled(response))return;
+   if(!live.current||handled(response.status))return;
    if(!response.ok)throw await failure(response,'The user list could not be loaded');
    const body=await response.json();if(!live.current)return;
    const list=(Array.isArray(body?.users)?body.users:[]).filter(u=>!u.isAdmin&&!u.isSuperUser);
@@ -47,18 +60,48 @@ export default function AssignedNumbers({id,labelledBy,onForbidden}){
    setUsers(list);
   }catch(err){if(live.current)setError(offline(err));}
  },[handled]);
+ // The newest request wins, so a slow response for an old filter or campaign can't overwrite the current one.
+ const load=useCallback(async()=>{
+  if(!campaign)return;
+  const mine=++seq.current,client=campaignClient(campaign),view=[campaign.name,filter,page,query].join('|');
+  // Dim the grid only for a new page, search or filter, not for background refreshes.
+  if(view!==shownView.current)setFetching(true);
+  try{
+   const [response,grants]=await Promise.all([
+    authorizedFetch(client.url('/api/campaign-contacts?'+pageQuery(page,query,filter?{username:filter}:{})),{cache:'no-store'}),
+    client.grants()]);
+   if(!live.current||mine!==seq.current||handled(response.status))return;
+   if(!response.ok)throw await failure(response,'The assigned numbers could not be loaded');
+   const body=await response.json();if(!live.current||mine!==seq.current)return;
+   // The number can change if the session is paired to another phone; writes must name the current one.
+   if(body.phone&&body.phone!==campaign.phone)setCampaigns(list=>list.map(c=>c.name===campaign.name?{...c,phone:body.phone}:c));
+   // Assignments removed elsewhere can leave this page past the end.
+   if(body.total>0&&body.page>body.pages){setPage(body.pages);return;}
+   shownView.current=view;
+   setRows(Array.isArray(body?.assignments)?body.assignments:[]);setTotal(body.total??0);
+   setGrantees(new Set((grants?.grants??[]).map(g=>g.userId)));setError('');setUpdated(Date.now());
+  }catch(err){if(live.current&&mine===seq.current&&!handled(err.status))setError(offline(err));}
+  finally{if(live.current&&mine===seq.current)setFetching(false);}
+ },[campaign,filter,page,query,handled]);
  useEffect(()=>{live.current=true;return ()=>{live.current=false;};},[]);
- useEffect(()=>{loadUsers();},[loadUsers]);
+ useEffect(()=>{loadUsers();loadNumbers();},[loadUsers,loadNumbers]);
+ // Restart on a different campaign, filter, page or search, not when only the campaign's phone was refreshed.
+ const latest=useRef(load);latest.current=load;
+ const ready=campaigns!==null;
+ // A different campaign or user filter starts again from its first page.
+ useEffect(()=>{setPage(1);setRows(null);setGrantees(null);},[selected,filter]);
  useEffect(()=>{
-  setRows(null);load();
-  const shown=()=>{if(document.visibilityState==='visible'){load();loadUsers();}};
-  const poll=setInterval(()=>{if(document.visibilityState==='visible')load();},POLL);
+  latest.current();
+  const shown=()=>{if(document.visibilityState==='visible'){latest.current();loadUsers();}};
+  const poll=setInterval(()=>{if(document.visibilityState==='visible')latest.current();},POLL);
   document.addEventListener('visibilitychange',shown);
   return ()=>{clearInterval(poll);document.removeEventListener('visibilitychange',shown);};
- },[load,loadUsers]);
+ },[selected,filter,page,query,ready,loadUsers]);
  useEffect(()=>{const d=formDialog.current;if(!d)return;if(form&&!d.open)d.showModal();else if(!form&&d.open)d.close();},[form]);
  useEffect(()=>{const d=deleteDialog.current;if(!d)return;if(target&&!d.open)d.showModal();else if(!target&&d.open)d.close();},[target]);
  const byName=new Map((users??[]).map(u=>[u.username,u]));
+ // Only users who have this campaign can receive its customers.
+ const assignable=(users??[]).filter(u=>grantees?.has(u.id));
  const who=username=>{const u=byName.get(username);return u?.name&&u.name!==username?u.name:username;};
  function openAdd(){setAdding(true);setNote('');}
  function openEdit(row){setForm({row,phone:'+'+row.phoneNumber,username:row.username});setFormError('');setNote('');}
@@ -68,29 +111,27 @@ export default function AssignedNumbers({id,labelledBy,onForbidden}){
  const changes=form?.row?{...(phoneValid&&Number(digits)!==form.row.phoneNumber?{phoneNumber:Number(digits)}:{}),...(form.username!==form.row.username?{username:form.username}:{})}:null;
  const canSave=!!form&&!saving&&phoneValid&&!!form.username&&(!form.row||Object.keys(changes).length>0);
  async function save(e){
-  e.preventDefault();if(!canSave)return;
-  const editing=form.row;
+  e.preventDefault();if(!canSave||!campaign)return;
+  const editing=form.row,client=campaignClient(campaign);
   setSaving(true);setFormError('');
   try{
-   const response=editing
-    ?await authorizedFetch('/api/admin/assigned-numbers/'+encodeURIComponent(editing.id),json('PATCH',changes))
-    :await authorizedFetch('/api/admin/assigned-numbers',json('POST',{phoneNumber:Number(digits),username:form.username}));
-   if(handled(response)){setForm(null);return;}
-   if(editing&&response.status===404){setForm(null);setNote('That assignment no longer exists.');await load();return;}
-   if(!response.ok)throw await failure(response,editing?'Could not update the assignment':'Could not assign the number');
+   const response=await client.write('PATCH','/api/campaign-contacts/'+encodeURIComponent(editing.id),changes);
+   if(handled(response.status)){setForm(null);return;}
+   if(response.status===404){setForm(null);setNote('That assignment no longer exists.');await load();return;}
+   if(!response.ok)throw await failure(response,'Could not update the assignment');
    const row=await response.json().catch(()=>null);
    setForm(null);
-   setNote(`${editing?'Updated':'Assigned'} +${row?.phoneNumber??digits} ${editing?'for':'to'} ${who(row?.username??form.username)}.`);
+   setNote(`Updated +${row?.phoneNumber??digits} for ${who(form.username)}.`);
    await load();
   }catch(err){setFormError(offline(err));}
   finally{if(live.current)setSaving(false);}
  }
  async function confirmDelete(){
-  if(!target||deleting)return;const row=target;
+  if(!target||deleting||!campaign)return;const row=target;
   setDeleting(true);setDeleteError('');
   try{
-   const response=await authorizedFetch('/api/admin/assigned-numbers/'+encodeURIComponent(row.id),{method:'DELETE'});
-   if(handled(response)){setTarget(null);return;}
+   const response=await campaignClient(campaign).write('DELETE','/api/campaign-contacts/'+encodeURIComponent(row.id));
+   if(handled(response.status)){setTarget(null);return;}
    if(response.status===204||response.status===404){
     setTarget(null);setNote(response.status===404?`+${row.phoneNumber} had already been removed.`:`Removed +${row.phoneNumber} from ${who(row.username)}.`);
     await load();return;
@@ -102,67 +143,76 @@ export default function AssignedNumbers({id,labelledBy,onForbidden}){
  const pending=saving||deleting||adding;
  return <section id={id} role="tabpanel" aria-labelledby={labelledBy} className="admin-panel">
   <header className="admin-head">
-   <div><h1>Assigned numbers</h1><p>{rows===null?'Loading assignments…':`${rows.length} number${rows.length===1?'':'s'}${filter?' for '+who(filter):''}`}{updated>0&&<span> · Updated {new Date(updated).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>}</p></div>
+   <div><h1>Assign Contacts</h1><p>{!campaign?(campaigns===null?'Loading campaigns…':'No connected campaign number'):rows===null?'Loading assignments…':`${total} customer${total===1?'':'s'} in +${campaign.phone}${filter?' for '+who(filter):''}`}{updated>0&&<span className="cp-updated"> · Updated {new Date(updated).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>}</p></div>
    <div className="um-head-actions">
-    <label className="an-filter"><span className="idle-sr">Show numbers for</span>
-     <select value={filter} disabled={pending} onChange={e=>setFilter(e.target.value)}>
-      <option value="">All users</option>
-      {filter&&users&&!byName.has(filter)&&<option value={filter}>@{filter}</option>}
-      {users?.map(u=><option key={u.id} value={u.username}>{u.name&&u.name!==u.username?`${u.name} (@${u.username})`:'@'+u.username}</option>)}
-     </select></label>
-    <button type="button" className="admin-refresh" disabled={pending} onClick={()=>{load();loadUsers();}}>Refresh</button>
-    <button type="button" className="um-primary" disabled={pending||!users?.length} onClick={openAdd}>Assign contacts</button>
+    <button type="button" className="admin-refresh" disabled={pending} onClick={()=>{loadNumbers();load();loadUsers();}}>Refresh</button>
+    <button type="button" className="um-primary cp-cta" disabled={pending||!campaign||!assignable.length} onClick={openAdd}><Icon name="plus" size={16}/>Assign contacts</button>
    </div>
   </header>
+  <div className="cp-toolbar an-toolbar">
+   {/* Visible labels sit in front of each filter; the dropdown's own aria-label already says the same words. */}
+   <span className="an-field"><span aria-hidden="true">WA number</span>
+    <Dropdown variant="pill" icon="phone" label="WA number" value={selected} disabled={pending||!campaigns?.length} menuMinWidth={260}
+     placeholder={campaigns?'No connected numbers':'Loading numbers…'} searchPlaceholder="Search numbers" onChange={value=>{setSelected(value);setNote('');}}
+     options={(campaigns??[]).map(c=>({value:c.name,label:'+'+c.phone,description:c.name,icon:'phone'}))}/></span>
+   <span className="an-field"><span aria-hidden="true">Customers for</span>
+    <Dropdown variant="pill" icon="users" label="Customers for" value={filter} disabled={pending} menuMinWidth={240} searchPlaceholder="Search users" onChange={setFilter}
+     options={[{value:'',label:'All users',icon:'users'},...(filter&&users&&!byName.has(filter)?[{value:filter,label:'@'+filter}]:[]),...(users??[]).map(userOption)]}/></span>
+   <label className="cp-search"><Icon name="search" size={16}/><span className="idle-sr">Search customers by number</span>
+    <input type="search" inputMode="tel" value={search} placeholder="Search customer number" onChange={e=>{setSearch(e.target.value);setPage(1);}}/></label>
+   {campaign&&grantees&&<small className="cp-count">{assignable.length} of {users?.length??0} users work in this number</small>}
+  </div>
   {error&&<div className="admin-msg error" role="alert">{error}</div>}
   {note&&<div className="admin-msg" role="status">{note}</div>}
   {users&&!users.length&&<div className="admin-msg" role="status">There are no regular users yet. Register one before assigning numbers.</div>}
-  {rows===null?<div className="admin-empty" aria-busy="true"><span className="admin-spin" aria-hidden="true"/>Loading…</div>
-  :!rows.length?<div className="admin-empty"><h2>No assigned numbers</h2><p>{filter?`${who(filter)} has no numbers yet.`:'Assign a number to a user to get started.'}</p></div>
-  :<div className="admin-table-wrap"><table className="admin-table">
-   <caption className="idle-sr">Assigned numbers</caption>
-   <thead><tr><th scope="col">ID</th><th scope="col">Phone</th><th scope="col">User</th><th scope="col"><span className="idle-sr">Actions</span></th></tr></thead>
+  {campaign&&users?.length>0&&grantees&&!assignable.length&&<div className="admin-msg" role="status">No user has +{campaign.phone} yet. Assign this campaign to a user on the Assign WA Num tab first.</div>}
+  {campaigns&&!campaigns.length?<div className="admin-empty"><h2>No connected numbers</h2><p>Connect a WhatsApp number on the Add Number tab, then assign it on the Assign WA Num tab.</p></div>
+  :rows===null?<div className="admin-empty" aria-busy="true"><span className="admin-spin" aria-hidden="true"/>Loading…</div>
+  :!rows.length?<div className="admin-empty"><span className="cp-empty-icon"><Icon name="contacts" size={28}/></span>{query?<><h2>No customers match</h2><p>No assigned customer number contains “{query}”.</p></>:<><h2>No assigned numbers</h2><p>{filter?`${who(filter)} has no customers in this campaign yet.`:'Assign customers of this campaign number to a user to get started.'}</p></>}</div>
+  :<><div className={'admin-table-wrap'+(fetching?' grid-loading':'')} aria-busy={fetching}><table className="admin-table cp-table">
+   <caption className="idle-sr">Customers assigned in +{campaign.phone}</caption>
+   <thead><tr><th scope="col">Customer</th><th scope="col">Handled by</th><th scope="col">Assigned</th><th scope="col"><span className="idle-sr">Actions</span></th></tr></thead>
    <tbody>{rows.map(row=>{const u=byName.get(row.username);
     return <tr key={row.id}>
-     <th scope="row" data-label="ID" className="um-mono">{row.id}</th>
-     <td data-label="Phone"><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} fallback="#"/><span className="um-mono"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></td>
-     <td data-label="User"><span className="um-who"><strong>{u?.name||row.username}</strong><small>@{row.username}</small></span></td>
+     <th scope="row" data-label="Customer"><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} fallback="#"/><span className="um-mono an-phone"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></th>
+     <td data-label="Handled by"><span className="cp-user"><Initials name={u?.name||row.username} size={30}/><span className="um-who"><strong>{u?.name||row.username}</strong><small>@{row.username}</small></span></span></td>
+     <td data-label="Assigned"><span className="um-who an-when">{row.assignedAt?<><strong>{when(row.assignedAt)}</strong><small>{row.assignedBy?'by '+row.assignedBy:' '}</small></>:<small>Before tracking began</small>}</span></td>
      <td><div className="an-actions">
       <button type="button" className="admin-refresh" disabled={pending} onClick={()=>openEdit(row)} aria-label={`Edit +${row.phoneNumber} for ${row.username}`}>Edit</button>
       <button type="button" className="admin-end" disabled={pending} onClick={()=>{setTarget(row);setDeleteError('');setNote('');}} aria-label={`Delete +${row.phoneNumber} for ${row.username}`}>Delete</button>
      </div></td>
     </tr>;})}</tbody>
-  </table></div>}
+  </table></div>
+  <Pagination page={page} total={total} onPage={setPage} disabled={fetching} noun="customers"/></>}
   <dialog ref={formDialog} className="idle-dialog um-dialog" aria-labelledby="an-form-title" onCancel={e=>{if(saving)e.preventDefault();else setForm(null);}} onClose={()=>setForm(null)}>
    {form&&<form onSubmit={save} noValidate>
-    <h2 id="an-form-title">{form.row?'Edit assigned number':'Assign a number'}</h2>
+    <h2 id="an-form-title">Edit assigned number</h2>
+    {campaign&&<p className="an-hint">Campaign +{campaign.phone} · {campaign.name}</p>}
     <div className="an-fields">
-     <label className="um-field">Phone number
+     <label className="um-field">Customer phone number
       <input type="tel" inputMode="tel" autoComplete="off" value={form.phone} disabled={saving} placeholder="+92 300 1234567" aria-invalid={!!form.phone&&!phoneValid} aria-describedby="an-phone-hint"
        onChange={e=>setForm(f=>({...f,phone:e.target.value}))} autoFocus/>
       <small id="an-phone-hint" className={form.phone&&!phoneValid?'um-error':undefined}>{form.phone&&!phoneValid?'Enter the country code and number: up to 15 digits, not starting with 0.':'Include the country code. Spaces, dashes and brackets are fine.'}</small>
      </label>
      <label className="um-field">User
-      <select value={form.username} disabled={saving} onChange={e=>setForm(f=>({...f,username:e.target.value}))}>
-       <option value="" disabled>Choose a user</option>
-       {form.username&&!byName.has(form.username)&&<option value={form.username}>@{form.username}</option>}
-       {users?.map(u=><option key={u.id} value={u.username}>{u.name&&u.name!==u.username?`${u.name} (@${u.username})`:'@'+u.username}</option>)}
-      </select>
+      <Dropdown label="User" value={form.username} disabled={saving} placeholder="Choose a user" searchPlaceholder="Search users"
+       onChange={username=>setForm(f=>({...f,username}))}
+       options={[...(form.username&&!assignable.some(u=>u.username===form.username)?[{value:form.username,label:'@'+form.username}]:[]),...assignable.map(userOption)]}/>
      </label>
     </div>
     {formError&&<p className="idle-error" role="alert">{formError}</p>}
-    {form.row&&!formError&&phoneValid&&!Object.keys(changes).length&&<p className="an-hint" role="status">No changes yet.</p>}
+    {!formError&&phoneValid&&!Object.keys(changes).length&&<p className="an-hint" role="status">No changes yet.</p>}
     <div className="idle-actions">
      <button type="button" className="idle-leave" disabled={saving} onClick={()=>setForm(null)}>Cancel</button>
-     <button type="submit" className="um-primary" disabled={!canSave}>{saving?'Saving…':form.row?'Save':'Assign'}</button>
+     <button type="submit" className="um-primary" disabled={!canSave}>{saving?'Saving…':'Save'}</button>
     </div>
    </form>}
   </dialog>
-  {adding&&users&&<AssignContacts users={users} initialUsername={filter} handled={handled} onClose={closeAdd}/>}
+  {adding&&campaign&&<AssignContacts users={assignable} campaign={campaign} initialUsername={assignable.some(u=>u.username===filter)?filter:''} handled={response=>handled(response.status)} onClose={closeAdd}/>}
   <dialog ref={deleteDialog} className="idle-dialog um-dialog" aria-labelledby="an-del-title" aria-describedby="an-del-desc" onCancel={e=>{if(deleting)e.preventDefault();else setTarget(null);}} onClose={()=>setTarget(null)}>
    {target&&<>
     <h2 id="an-del-title">Remove +{target.phoneNumber}?</h2>
-    <p id="an-del-desc">{who(target.username)} (@{target.username}) will no longer see this number in their chat sidebar.</p>
+    <p id="an-del-desc">{who(target.username)} (@{target.username}) will no longer see this customer in {campaign?'+'+campaign.phone:'this campaign'}.</p>
     {deleteError&&<p className="idle-error" role="alert">{deleteError}</p>}
     <div className="idle-actions">
      <button type="button" className="idle-leave" disabled={deleting} onClick={()=>setTarget(null)}>Cancel</button>

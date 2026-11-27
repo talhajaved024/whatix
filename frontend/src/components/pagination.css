@@ -1,0 +1,46 @@
+/* Pager under every data grid: Previous left, Next right, range centred. */
+/* No bar behind it: Previous, the range and Next are three separate pills, each with its own frosted background. */
+.pager{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;flex:none;margin-top:2px;padding:0;pointer-events:none}
+.pager>*{pointer-events:auto}
+.pager .pager-btn.pager-btn{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:4px 12px;font:inherit;font-size:13px;font-weight:700;color:#167456;
+ cursor:pointer;border:1px solid #16745633;border-radius:999px;background:#fff;box-shadow:0 1px 0 #fff inset,0 4px 14px #183a341a;
+ transition:background .2s,border-color .2s,box-shadow .2s,transform .15s}
+.pager .pager-btn.pager-btn:not(:disabled):hover{border-color:#167456;background:#e3f4e9;box-shadow:0 6px 16px #1674561f}
+.pager .pager-btn.pager-btn:not(:disabled):active{transform:scale(.97)}
+.pager .pager-btn.pager-btn:focus-visible{outline:none;box-shadow:0 0 0 4px #a8e9bd}
+.pager .pager-btn.pager-btn:disabled{color:#9aaca3;cursor:not-allowed;background:#f6f9f7;box-shadow:0 4px 14px #183a3410}
+.pager-btn.next svg{transform:rotate(180deg)}
+.pager-info{display:inline-flex;justify-self:center;align-items:center;justify-content:center;gap:10px;min-height:30px;margin:0;padding:3px 5px 3px 14px;
+ box-sizing:border-box;font-size:13px;color:#52675e;white-space:nowrap;text-align:center;font-variant-numeric:tabular-nums;
+ border:1px solid #16745622;border-radius:999px;background:linear-gradient(135deg,#ffffffeb,#f4faf6e0);box-shadow:0 1px 0 #fff inset,0 4px 14px #183a341a}
+.pager-info:not(:has(.pager-page)){padding-right:14px}
+.pager-info strong{color:#123e36}
+.pager-page{padding:2px 9px;font-size:12px;font-weight:700;color:#174d3d;border-radius:999px;background:#e3f4e9}
+/* While the next page loads the current one stays, slightly dimmed. */
+.grid-loading{opacity:.55;pointer-events:none;transition:opacity .15s}
+@media(max-width:680px){
+ .pager{gap:8px}
+ .pager .pager-btn.pager-btn{padding:6px 10px;min-height:36px}
+ .pager-btn span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .pager-info{gap:8px;min-height:36px;padding-left:12px;font-size:12.5px}
+}
+@media(prefers-reduced-motion:reduce){.pager .pager-btn.pager-btn{transition:none}}
+@media(forced-colors:active){.pager-info{border:1px solid CanvasText}}
+/* Always at the bottom of the page: pushed down when a page has few rows, and
+   pinned to the bottom edge while a long page scrolls (narrow screens). */
+/* Space under the bar = the panel's bottom padding + --pager-gap (sticky offsets count from inside the
+   padding), about 30px either way. The margin gives a short grid that doesn't scroll the same space. */
+.admin-panel{--pager-gap:6px}
+@media(max-height:800px){.admin-panel{--pager-gap:14px}}
+.admin-panel>.pager{position:sticky;bottom:var(--pager-gap);z-index:3;margin-top:auto;margin-bottom:var(--pager-gap)}
+.admin-panel>.pager>.pager-info{-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%)}
+:root[data-perf=lite] .admin-panel>.pager>.pager-info{background:#f7fbf8;-webkit-backdrop-filter:none;backdrop-filter:none}
+/* Phones: sits just above the bottom tab bar, top to bottom of the scroll, with
+   room on the right for the team chat button that floats there. */
+/* Phone widths only: MobileTabs is always in the page for admins (hidden by CSS on wider screens), so without
+   the media query these rules also hit desktops, zeroing the panel's bottom padding under the pager. */
+@media(max-width:680px){
+ body:has(.mobile-tabs) .admin-panel:has(>.pager){padding-bottom:calc(var(--mt-height) + var(--mt-gap) + 8px + env(safe-area-inset-bottom))}
+ body:has(.mobile-tabs) .admin-panel{--pager-gap:0px}
+ body:has(.mobile-tabs) .admin-panel>.pager{padding-right:64px}
+}

@@ -11,7 +11,8 @@ export default function AssignedList({onOpen,onLoaded,current,disabled}){
   busy.current??=(async()=>{
    setLoading(true);
    try{
-    const response=await authorizedFetch('/api/assigned-numbers',{cache:'no-store'});
+    // Customers assigned to this user inside the campaign inbox that is open.
+    const response=await authorizedFetch('/api/campaign-contacts',{cache:'no-store'});
     if(!live.current)return;
     if(response.status===401){checkSession().catch(()=>{});return;}
     if(!response.ok){const body=await response.json().catch(()=>null);throw new Error(typeof body?.error==='string'?body.error:'Your assigned numbers could not be loaded (HTTP '+response.status+').');}

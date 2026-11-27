@@ -22,6 +22,7 @@ test('waiting-client notifications reach the super user and the assigned regular
       reactions.push(JSON.parse(body));
       res.writeHead(204);return res.end();
     }
+    if(url.pathname==='/api/sessions/notify-test')return res.end(JSON.stringify({name:'notify-test',status:'WORKING',me:{id:'15550002222@c.us'}}));
     if(url.pathname==='/api/sendText'){
       let data='';for await(const chunk of req)data+=chunk;
       holding.push(JSON.parse(data).chatId);
@@ -79,13 +80,17 @@ test('waiting-client notifications reach the super user and the assigned regular
   const assigned=await fetch(base+'/admin/assigned-numbers',{method:'POST',headers:{Cookie:superUser,'Content-Type':'application/json'},
     body:JSON.stringify({phoneNumber:923001111111,username:'alice'})});
   assert.equal(assigned.status,201);
+  // Both regular users work in this campaign; alice's number moves into it.
+  const userIds=Object.fromEntries((await (await fetch(base+'/admin/users',{headers:{Cookie:superUser}})).json()).users.map(u=>[u.username,u.id]));
+  for(const name of ['alice','bob'])assert.equal((await fetch(base+'/campaign-grants/'+userIds[name],{method:'PUT',
+    headers:{Cookie:superUser,'Content-Type':'application/json','X-Campaign-Phone':'15550002222'},body:JSON.stringify({labels:[]})})).status,204);
   const alice=await login('alice'),bob=await login('bob');
   // The header pill shows the account's full name (NAME column), kept live.
   const me=async Cookie=>(await (await fetch(base+'/auth/me',{headers:{Cookie}})).json()).name;
   assert.equal(await me(alice),'alice');                    // imported accounts default NAME to the username
   const aliceId=(await (await fetch(base+'/admin/users',{headers:{Cookie:superUser}})).json()).users.find(u=>u.username==='alice').id;
   assert.equal((await fetch(base+'/admin/users/'+aliceId,{method:'PATCH',headers:{Cookie:superUser,'Content-Type':'application/json'},
-    body:JSON.stringify({name:'Alice Khan'})})).status,200);
+    body:JSON.stringify({name:'Alice Khan',phoneNumber:923001110093})})).status,200);
   assert.equal(await me(alice),'Alice Khan');
   const streams={superUser:await stream(superUser),alice:await stream(alice),bob:await stream(bob)};
   for(const s of Object.values(streams))await s.until(()=>s.named('client.waiting.snapshot').length);

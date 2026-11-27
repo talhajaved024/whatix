@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import Dropdown from './Dropdown.jsx';
 
 export function MessageMenu({receipts,onDelete,preview=false}){
   const menu=useRef(null);
@@ -33,8 +34,8 @@ export function DeleteMessageDialog({receipts,states,remove,onClose,broadcast}){
     onCancel={e=>{e.preventDefault();if(!busy)onClose();}}>
     <h2 id="delete-message-title">Delete message?</h2>
     <p>Delete for me hides this message only for your signed-in account. Delete for everyone requests its removal from the recipient’s chat.</p>
-    {broadcast&&<label>Recipient<select value={id} disabled={busy} onChange={e=>{setId(e.target.value);setError('');}}>
-      {receipts.map(r=><option key={r.id} value={r.id}>{r.number}</option>)}</select></label>}
+    {broadcast&&<label>Recipient<Dropdown label="Recipient" value={id} disabled={busy} onChange={value=>{setId(value);setError('');}}
+      searchPlaceholder="Search recipients" options={receipts.map(r=>({value:r.id,label:String(r.number)}))}/></label>}
     {error&&<p className="idle-error" role="alert">{error}</p>}
     <div className="idle-actions"><button type="button" className="idle-leave" autoFocus disabled={busy} onClick={onClose}>Cancel</button>
       <button type="button" className="admin-end" disabled={!enabled} onClick={()=>confirm('me')}>Delete for me</button>

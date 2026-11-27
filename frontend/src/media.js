@@ -1,3 +1,5 @@
+import {inboxUrl} from "./inbox.js";
+
 export function receivedMedia(message) {
   const media = message.media || {};
   const mime = String(media.mimetype || message._data?.mimetype || "").toLowerCase();
@@ -9,8 +11,9 @@ export function receivedMedia(message) {
   let src;
   if (typeof media.url === "string") {
     try {
-      const path = new URL(media.url,"http://localhost:3000").pathname;
-      if (path.startsWith("/api/files/")) src = path;
+      const url = new URL(media.url,"http://localhost:3000");
+      const path=url.pathname+url.search;
+      if (path.startsWith("/api/files/")) src = inboxUrl(path);
     } catch { /* WAHA can report unavailable media. */ }
   }
   return {kind, src, filename:media.filename || message._data?.filename ||

@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
 import { WebSocketServer } from 'ws';
+import { completePasswordSetup } from './test-database.js';
 
 test('session ownership, explicit idle renewal and automatic logout', {timeout:15000}, async t => {
   const photoURL='https://example.com/contact.jpg';
@@ -21,8 +22,28 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   let previousLabels, staleRead=false;
   let replyCount=0,drafts=0,releaseDraft;
   const held=new Promise(resolve=>{releaseDraft=resolve;});
+  let linked={name:'photo-test',status:'WORKING',me:{id:'15551234567@c.us'}};
+  const deletedSessions=[];
   const http=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
+    if(url.pathname==='/api/sessions/photo-test'){
+      if(!linked){res.writeHead(503);return res.end();}
+      return res.end(JSON.stringify(linked));
+    }
+    if(url.pathname==='/api/sessions/second'){
+      // Like real WAHA: 200 with an empty body and no content type.
+      if(req.method==='DELETE'){deletedSessions.push('second');return res.end();}
+      return res.end(JSON.stringify({name:'second',status:'WORKING',me:{id:'15550000002@c.us'}}));
+    }
+    if(req.method==='DELETE' && url.pathname.startsWith('/api/sessions/')){deletedSessions.push(url.pathname);return res.end('{}');}
+    if(url.pathname==='/api/sessions')return res.end(JSON.stringify([
+      {name:'photo-test',status:'WORKING',me:{id:'15551234567@c.us'}}, {name:'second',status:'WORKING',config:{secret:'private'}}
+    ]));
+    if(url.pathname==='/api/second/chats/overview')return res.end(JSON.stringify([{id:'second-chat'}]));
+    if(url.pathname==='/api/second/auth/qr'){
+      assert.equal(req.headers['x-api-key'],'fixture');
+      return res.end(JSON.stringify({data:'pairing-image'}));
+    }
     if(url.pathname==='/api/chat'){
       let data='';for await(const chunk of req)data+=chunk;
       const input=JSON.parse(data);
@@ -44,12 +65,17 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
     if(url.pathname==='/api/sendText'){
       let data='';for await(const chunk of req)data+=chunk;
       const input=JSON.parse(data);
+      if(input.session==='second' && input.text==='fixture send'){
+        assert.equal(input.chatId,'123@c.us');
+        return res.end(JSON.stringify({id:'second-outgoing',fromMe:true}));
+      }
       assert.equal(input.chatId,'100@lid');
       assert.equal(input.session,'photo-test');
       assert.match(input.text,/^(Welcome to Brand Matrix, your digital marketing partner! Thank you for the details\. May I have your full name|Thank you, Ali Khan\. We have received your requirement|Ali Khan, your request is already on file)[\s\S]*\n\n\*this message is Auto Generated\*$/);
       replyCount++;http.emit('replied');
       return res.end('{}');
     }
+    if(url.pathname==='/api/photo-test/lids/1')return res.end(JSON.stringify({pn:'1@c.us'}));
     if(['/api/photo-test/lids/77','/api/photo-test/lids/100'].includes(url.pathname)){
       res.setHeader('Content-Type','application/json');
       return res.end(JSON.stringify({pn:'15551234567@c.us'}));
@@ -199,18 +225,102 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const attempts = await Promise.all([login(),login()]);
   releaseDraft();
   incoming('while-online');
-  assert.deepEqual(attempts.map(r=>r.status).sort(),[200,409]);
-  const first = cookie(attempts.find(r=>r.ok));
+  // Both passwords are right, so both sign in; the later one takes over and
+  // exactly one browser stays signed in (still one session per account).
+  assert.deepEqual(attempts.map(r=>r.status),[200,200]);
+  const signedIn=[];
+  for(const attempt of attempts)if((await me(cookie(attempt))).status===200)signedIn.push(cookie(attempt));
+  assert.equal(signedIn.length,1);
+  let first = signedIn[0];
   const report=await (await grid(first)).json();
   assert.equal(report.requirements.length,1);
   const entry=report.requirements[0];
-  assert.deepEqual(entry,{id:1,name:'Ali Khan',phone:15551234567,query:'Customer requests website development.',dateReceived:entry.dateReceived,assignedUsers:[]});
+  assert.deepEqual(entry,{id:1,name:'Ali Khan',phone:15551234567,query:'Customer requests website development.',dateReceived:entry.dateReceived,assignedUsers:[],receivedBy:entry.receivedBy});
+  // Taken by the AI intake on the main number.
+  assert.deepEqual([entry.receivedBy.session,entry.receivedBy.main],['photo-test',true]);
   assert.ok(report.from<=entry.dateReceived && entry.dateReceived<=report.to);
   assert.equal((await grid(first,'?from=2025-02-30')).status,400);
   assert.deepEqual((await (await grid(first,'?from=2000-01-01&to=2000-01-31')).json()).requirements,[]);
   const aliceLogin=await login(password,'alice');
   assert.equal((await aliceLogin.clone().json()).role,'user');
-  const alice=cookie(aliceLogin);
+  let alice=cookie(aliceLogin);
+  const inbox=base+'/inboxes/second/api';
+  const get=(path,Cookie)=>fetch(path,{headers:{Cookie}});
+  const verified=async Cookie=>(await (await get(base+'/inbox-availability',Cookie)).json()).account;
+  const oldKey=await verified(first);
+  assert.match(oldKey,/^[a-f0-9]{64}$/);
+  assert.notEqual(await verified(alice),oldKey);
+  // The availability probe shares one WAHA answer for up to 5 s across all tabs,
+  // so each change to the number is seen once that answer is older than 5 s.
+  linked.status='SCAN_QR_CODE';await advance(5001);
+  assert.equal(await verified(first),null);
+  linked.status='WORKING';linked.me.id='15551239999@c.us';await advance(5001);
+  assert.notEqual(await verified(first),oldKey);
+  linked.me=null;await advance(5001);
+  assert.equal(await verified(first),null);
+  linked=null;await advance(5001);
+  assert.equal((await get(base+'/inbox-availability',first)).status,502);
+  linked={name:'photo-test',status:'WORKING',me:{id:'15551234567@c.us'}};await advance(5001);
+  // Regular users work only inside campaigns granted to them: alice gets this
+  // inbox with customer 1, bob gets it with no customers yet.
+  const ids=Object.fromEntries((await (await get(base+'/admin/users',first)).json()).users.map(u=>[u.username,u.id]));
+  const campaignCall=(method,path,body)=>fetch(base+path,{method,headers:{Cookie:first,'Content-Type':'application/json','X-Campaign-Phone':'15551234567'},body:JSON.stringify(body)});
+  assert.equal((await get(base+'/inbox-availability',alice)).status,403);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:[]})).status,204);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.bob,{labels:[]})).status,204);
+  assert.equal((await campaignCall('POST','/campaign-contacts',{phoneNumber:1,username:'alice'})).status,201);
+  assert.equal((await campaignCall('POST','/campaign-contacts',{phoneNumber:1,username:'alice'})).status,409);
+  assert.match(await verified(alice),/^[a-f0-9]{64}$/);
+  assert.deepEqual((await (await get(base+'/my-campaigns',alice)).json()).sessions,[{name:'photo-test',status:'WORKING',phone:'15551234567'}]);
+  assert.deepEqual(await (await get(base+'/photo-test/chats/overview',alice)).json(),[{id:'1@c.us'}]);
+  // Labels: alice was limited to none; then every label; then one chosen label.
+  const aliceLabels=async()=>(await (await get(base+'/photo-test/labels',alice)).json()).map(l=>l.id);
+  assert.deepEqual(await aliceLabels(),[]);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:null})).status,204);
+  assert.deepEqual(await aliceLabels(),['1','3']);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:['3']})).status,204);
+  assert.deepEqual(await aliceLabels(),['3']);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:['missing']})).status,422);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:'all'})).status,400);
+  assert.equal((await campaignCall('PUT','/campaign-grants/'+ids.alice,{labels:null})).status,204);
+
+  for(const path of [inbox+'/second/chats/overview',base+'/admin/waha-ui/',base+'/admin/whatsapp-numbers',base+'/admin/waha-worker/api/second/auth/qr']){
+    assert.equal((await get(path,'')).status,401);
+    assert.equal((await get(path,alice)).status,403);
+  }
+  assert.deepEqual((await (await get(base+'/admin/whatsapp-numbers',first)).json()).sessions[1],{name:'second',status:'WORKING'});
+  assert.deepEqual(await (await get(inbox+'/second/chats/overview',first)).json(),[{id:'second-chat'}]);
+  assert.equal((await get(inbox+'/photo-test/chats/overview',first)).status,404);
+  assert.equal((await get(base+'/second/chats/overview',first)).status,404);
+  assert.equal((await get(base+'/files/second/photo.png',first)).status,404);
+  assert.equal((await get(base+'/files/second/photo.png',alice)).status,403);
+  const wrongSender=await fetch(inbox+'/sendText',{method:'POST',headers:{Cookie:first,'Content-Type':'application/json'},body:JSON.stringify({session:'photo-test',text:'wrong inbox'})});
+  assert.equal(wrongSender.status,400);
+  const sendInSecond=await fetch(inbox+'/sendText',{method:'POST',headers:{Cookie:first,'Content-Type':'application/json'},
+    body:JSON.stringify({session:'second',text:'fixture send',chatId:'123@c.us'})});
+  assert.equal((await sendInSecond.json()).id,'second-outgoing');
+  for(const [prefix,mine] of [[base,false],[inbox,true]]){
+    const response=await fetch(prefix+'/messages/deletion-state',{method:'POST',headers:{Cookie:first,'Content-Type':'application/json'},body:JSON.stringify({ids:['second-outgoing']})});
+    assert.equal((await response.json()).messages[0].mine,mine);
+  }
+  const dashboardQR=await fetch(base+'/second/auth/qr',{headers:{Cookie:first,'X-Api-Key':'whatix-dashboard'}});
+  assert.deepEqual(await dashboardQR.json(),{data:'pairing-image'});
+  // Deleting a number from the Add Number dashboard: admin roles only, never the main number.
+  const deleteSession=(Cookie,name,dashboard=false)=>fetch((dashboard?base:base+'/admin/waha-worker/api')+'/sessions/'+name,
+    {method:'DELETE',headers:{Cookie,...(dashboard?{'X-Api-Key':'whatix-dashboard'}:{})}});
+  assert.equal((await deleteSession('','second')).status,401);
+  assert.equal((await deleteSession(alice,'second')).status,403);
+  const mainRefused=await deleteSession(first,'photo-test');
+  assert.equal(mainRefused.status,403);
+  assert.match((await mainRefused.json()).message,/main WhatsApp number \(photo-test\) cannot be deleted/);
+  assert.equal((await deleteSession(first,'photo-test',true)).status,403);   // same through the dashboard's own path
+  assert.deepEqual(deletedSessions,[]);                                     // nothing reached WAHA so far
+  const deleted=await deleteSession(first,'second',true);
+  assert.equal(deleted.status,200);                                        // WAHA's empty answer passes through
+  assert.equal(await deleted.text(),'');
+  assert.deepEqual(deletedSessions,['second']);
+  assert.equal((await deleteSession(first,'bad..name')).status,403);        // not a session name: refused by the gateway
+  assert.deepEqual(deletedSessions,['second']);
   const deleteLabel=(Cookie,scope)=>fetch(base+'/business-labels/2',{method:'DELETE',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({scope,expectedChats:[]})});
   assert.equal((await deleteLabel('','label')).status,401);
   for(const scope of ['label','history','chats'])assert.equal((await deleteLabel(alice,scope)).status,403);
@@ -222,7 +332,7 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await removeChat(first,'100@lid')).status,200);
   assert.deepEqual(Object.keys(await personalList(first)),['100@lid']);
   assert.deepEqual(await personalList(alice),{});
-  const labelPost=(suffix,body,Cookie=alice)=>fetch(base+'/business-labels'+suffix,{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const labelPost=(suffix,body,Cookie=first)=>fetch(base+'/business-labels'+suffix,{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify(body)});
   assert.equal((await labelPost('',{name:'Customers',color:4},'')).status,401);
   assert.equal((await labelPost('',{name:'Customers',color:4},alice)).status,403);
   assert.equal((await labelPost('',{name:' ',color:20},first)).status,400);
@@ -254,7 +364,7 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const states=async Cookie=>(await (await fetch(base+'/messages/deletion-state',{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({ids:['sent-note']})})).json()).messages[0];
   assert.equal((await deletion('','sent-note','everyone')).status,401);
   assert.equal((await deletion(first,'sent-note','everyone')).status,404);
-  assert.equal((await deletion(alice,'received-note','me')).status,404);
+  assert.equal((await deletion(alice,'received-note','me')).status,403);
   assert.equal((await deletion(alice,'sent-note','me')).status,200);
   assert.equal((await states(alice)).hidden,true);
   assert.equal((await states(first)).hidden,false);
@@ -265,18 +375,18 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.ok(repeats.every(r=>r.status===200));
   assert.equal(revokeCalls,2);
   assert.deepEqual(await states(first),{id:'sent-note',mine:false,hidden:false,revocationRequested:true});
-  const audio=await fetch(base+'/files/note.ogg',{headers:{Cookie:alice,Range:'bytes=0-2'}});
+  const audio=await fetch(base+'/files/note.ogg',{headers:{Cookie:first,Range:'bytes=0-2'}});
   assert.equal(audio.status,206);
   assert.equal(audio.headers.get('Content-Type'),'audio/ogg');
   assert.equal(audio.headers.get('Content-Disposition'),'inline');
   assert.equal(await audio.text(),'Ogg');
-  const photo=(id,Cookie=alice)=>fetch(base+'/contacts/profile-picture?'+new URLSearchParams({contactId:id,session:'ignored'}),{headers:{Cookie}});
+  const photo=(id,Cookie=first)=>fetch(base+'/contacts/profile-picture?'+new URLSearchParams({contactId:id,session:'ignored'}),{headers:{Cookie}});
   const contactName=(id,Cookie)=>fetch(base+'/contacts/name?'+new URLSearchParams({contactId:id}),{headers:{Cookie}});
   const identity=await fetch(base+'/session-identity',{headers:{Cookie:first}});
   assert.deepEqual(await identity.json(),{session:'photo-test',number:'+15551234567',lid:'100@lid'});
   assert.deepEqual(await (await contactName('1@c.us',first)).json(),{name:'Saved contact'});
   assert.deepEqual(await (await contactName('77@lid',first)).json(),{name:'Profile name'});
-  assert.equal((await contactName('1@c.us',alice)).status,403);
+  assert.equal((await contactName('2@c.us',alice)).status,403);
   assert.equal((await photo('1','')).status,401);
   assert.equal((await photo('1@g.us')).status,400);
   assert.deepEqual(await (await photo('+1')).json(),{profilePictureURL:photoURL});
@@ -289,7 +399,13 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await list('')).status,401);
   assert.equal((await list(alice)).status,403);
   assert.equal((await (await me(first)).json()).role,'super_user');
-  assert.equal((await login(password,'alice')).status,409);
+  // Signing in again elsewhere takes over; the old cookie stops working at once.
+  assert.equal((await login('wrong-password','alice')).status,401);   // a wrong password never takes over
+  assert.equal((await me(alice)).status,200);
+  const aliceAgain=await login(password,'alice');
+  assert.equal(aliceAgain.status,200);
+  assert.equal((await me(alice)).status,401);
+  alice=cookie(aliceAgain);
   const register=(Cookie,username)=>fetch(base+'/admin/users',{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({username,password,name:'Test Operator',phoneNumber:923001234567,isAdmin:true})});
   assert.equal((await register('', 'new-user')).status,401);
   assert.equal((await register(alice,'new-user')).status,403);
@@ -311,11 +427,36 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal(created.isAdmin,true);
   assert.equal(created.phoneNumber,923001234567);
   assert.ok(Date.parse(created.dateCreated));
+  assert.equal(created.mustChangePassword,true);   // the admin chose this password
+  // First sign-in: until the user picks their own password, the account can only
+  // read its identity, report activity and change the password.
+  const firstSignIn=await login(password,'new-user');
+  assert.equal(firstSignIn.status,200);
+  assert.equal((await firstSignIn.clone().json()).mustChangePassword,true);
+  const setupCookie=cookie(firstSignIn);
+  const meDuringSetup=await me(setupCookie);
+  assert.equal(meDuringSetup.status,200);
+  assert.equal((await meDuringSetup.json()).mustChangePassword,true);
+  const blocked=await get(base+'/admin/whatsapp-numbers',setupCookie);
+  assert.equal(blocked.status,403);
+  assert.equal((await blocked.json()).reason,'password_change_required');
+  assert.equal((await get(base+'/my-campaigns',setupCookie)).status,403);
+  const choose=(Cookie,currentPassword,newPassword)=>fetch(base+'/auth/password',{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})});
+  assert.equal((await choose(setupCookie,password,password)).status,400);   // must differ from the admin's
+  const own=randomUUID();
+  assert.equal((await choose(setupCookie,password,own)).status,204);
+  assert.equal((await me(setupCookie)).status,401);   // signs in again with the new password
+  const ownSignIn=await login(own,'new-user');
+  assert.equal((await ownSignIn.json()).mustChangePassword,false);
+  assert.equal((await get(base+'/admin/whatsapp-numbers',cookie(ownSignIn))).status,200);
+  assert.equal((await choose(cookie(ownSignIn),own,password)).status,204);   // back to the shared test password
   const added=await login(password,'new-user');
   assert.equal(added.status,200);
   assert.equal((await register(cookie(added),'forbidden')).status,403);
   const directoryList=async()=> (await (await fetch(base+'/admin/users',{headers:{Cookie:first}})).json()).users;
   const adminCookie=cookie(added);
+  assert.equal((await get(base+'/admin/whatsapp-numbers',adminCookie)).status,200);
+  assert.equal((await get(inbox+'/second/chats/overview',adminCookie)).status,200);
   assert.equal((await labelPost('',{name:'Customers',color:4},adminCookie)).status,201);
   assert.equal((await (await me(adminCookie)).json()).role,'admin');
   assert.deepEqual(await personalList(adminCookie),{});
@@ -336,16 +477,16 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const savedAssignments=await replaceAssignees(adminCookie,selected,[]);
   assert.deepEqual((await savedAssignments.json()).requirement.assignedUsers,choices);
   const numbers=async Cookie=>(await (await fetch(base+'/assigned-numbers',{headers:{Cookie}})).json()).assignments.map(a=>a.phoneNumber);
-  assert.deepEqual(await numbers(alice),[entry.phone]);
+  assert.deepEqual(await numbers(alice),[1,entry.phone]);
   assert.deepEqual(await numbers(bob),[entry.phone]);
   assert.equal((await replaceAssignees(first,[],[])).status,409);
   assert.equal((await replaceAssignees(first,[bobId],selected)).status,200);
-  assert.deepEqual(await numbers(alice),[]);
+  assert.deepEqual(await numbers(alice),[1]);
   assert.deepEqual(await numbers(bob),[entry.phone]);
   assert.equal((await replaceAssignees(first,[],[bobId])).status,200);
   assert.deepEqual(await numbers(bob),[]);
   assert.equal((await fetch(base+'/admin/users',{headers:adminHeaders})).status,200);
-  const regular=await fetch(base+'/admin/users',{method:'POST',headers:adminHeaders,body:JSON.stringify({username:'operator',password})});
+  const regular=await fetch(base+'/admin/users',{method:'POST',headers:adminHeaders,body:JSON.stringify({username:'operator',password,name:'Operator',phoneNumber:923001110428})});
   assert.equal(regular.status,201);
   const regularId=(await regular.json()).id;
   const path=base+'/admin/users/'+regularId;
@@ -353,7 +494,8 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await fetch(path,{method:'PATCH',headers:adminHeaders,body:JSON.stringify({isAdmin:true})})).status,403);
   const patchAsAdmin=(url,changes)=>fetch(url,{method:'PATCH',headers:adminHeaders,body:JSON.stringify(changes)});
   assert.equal((await patchAsAdmin(path,{username:'changed',name:'Rejected'})).status,403);
-  const edited=await patchAsAdmin(path,{name:'Edited operator',phoneNumber:123});
+  assert.equal((await patchAsAdmin(path,{phoneNumber:123})).status,400);   // too short for a phone number
+  const edited=await patchAsAdmin(path,{name:'Edited operator',phoneNumber:923001110436});
   assert.equal(edited.status,200);
   assert.equal((await edited.json()).name,'Edited operator');
   const manage=(url,banLogin)=>fetch(url,{method:'POST',headers:adminHeaders,body:JSON.stringify({banLogin})});
@@ -386,7 +528,10 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const item=records.find(u=>u.id===created.id);
   assert.ok(item.userIp);
   assert.ok(item.sessionId);
-  assert.equal(JSON.stringify(records).toLowerCase().includes('password'),false);
+  // No password data in the directory: no password field, and no sealed (v1:iv:tag:data) or scrypt verifier anywhere.
+  // (The boolean mustChangePassword flag is allowed.)
+  assert.equal(records.some(row=>Object.keys(row).some(key=>/^password/i.test(key))),false);
+  assert.equal(/scrypt\$|v1:[0-9a-f]{24}:[0-9a-f]{32}:/.test(JSON.stringify(records)),false);
   const setBan=(path,banLogin,Cookie=first)=>fetch(base+path,{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({banLogin})});
   const bannedPath='/admin/users/'+item.id+'/ban';
   assert.equal((await setBan(bannedPath,true,alice)).status,403);
@@ -414,9 +559,10 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal(duplicateRename.status,409);
   assert.deepEqual(await duplicateRename.json(),{error:'Username already in use'});
   assert.equal((await profileRequest('PATCH',idToEdit,{username:created.username})).status,200);
-  const changed=await (await profileRequest('PATCH',idToEdit,{name:'Edited',phoneNumber:null})).json();
+  const changed=await (await profileRequest('PATCH',idToEdit,{name:'Edited',phoneNumber:447700900497})).json();
   assert.equal(changed.name,'Edited');
-  assert.equal(changed.phoneNumber,null);
+  assert.equal(changed.phoneNumber,447700900497);
+  assert.equal((await profileRequest('PATCH',idToEdit,{phoneNumber:null})).status,400);   // a phone number is required
   assert.ok(changed.sessionId);
   assert.deepEqual(await (await profileRequest('GET',idToEdit)).json(),changed);
   assert.equal((await profileRequest('PATCH',idToEdit,{username:'renamed'})).status,200);
@@ -429,6 +575,9 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await login(password,'renamed')).status,401);
   const last=await login(replacement,'renamed');
   assert.equal(last.status,200);
+  // An admin reset is also a password the admin knows: the user must replace it.
+  assert.equal((await last.clone().json()).mustChangePassword,true);
+  assert.equal((await get(base+'/admin/whatsapp-numbers',cookie(last))).status,403);
   assert.equal((await profileRequest('DELETE',idToEdit)).status,204);
   assert.equal((await me(cookie(last))).status,401);
   assert.equal((await post('refresh',cookie(last))).status,401);
@@ -437,6 +586,7 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await login(replacement,'renamed')).status,401);
   const later=await register(first,'later');
   assert.ok((await later.json()).id>idToEdit);
+  await completePasswordSetup(base,'later',password);   // used below as a working admin
   const users=(await (await list(first)).json()).users;
   assert.deepEqual(users.map(row=>row.username).sort(),['alice','bob']);
   const id=users.find(row=>row.username==='alice').sessionId;
@@ -450,7 +600,13 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const readerVoice=aliceStream.body.getReader();
   let received='';
   while(!received.includes('"kind":"voice"'))received+=new TextDecoder().decode((await readerVoice.read()).value);
-  assert.match(received,/"src":"\/api\/files\/note.ogg"/);
+  // Regular users get a media link signed for one of their own chats.
+  const signed=/"src":"(\/api\/files\/note\.ogg\?chat=1%40lid&proof=[0-9a-f]{64})"/.exec(received)?.[1];
+  assert.ok(signed,received);
+  const signedFile=await fetch(base.slice(0,-4)+signed,{headers:{Cookie:alice,Range:'bytes=0-2'}});
+  assert.equal(signedFile.status,206);
+  assert.equal(await signedFile.text(),'Ogg');
+  assert.equal((await fetch(base.slice(0,-4)+signed.replace(/.$/,c=>c==='0'?'1':'0'),{headers:{Cookie:alice}})).status,403);
   const adminStream=await fetch(base+'/incoming-text',{headers:{Cookie:first}});
   const adminReader=adminStream.body.getReader();
   const decline=(id,Cookie=first)=>fetch(base+'/calls/decline',{method:'POST',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({id})});
@@ -490,6 +646,24 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await decline('ring')).status,409);
   assert.equal(declineRequests,3);
   await adminReader.cancel();
+  // Re-pairing a number must never let one browser history hold two numbers' chats.
+  // WAHA's status event clears the shared phone answer before any tab hears it, so
+  // the tab's immediate re-check already sees the new phone (no 5 s wait) and the
+  // browser switches to that number's own history.
+  const keyBefore=await verified(first);                       // the shared answer is now cached
+  const statusStream=await fetch(base+'/incoming-text',{headers:{Cookie:first}});
+  const statusReader=statusStream.body.getReader();
+  let status='';
+  while(!status.includes('event: ready'))status+=new TextDecoder().decode((await statusReader.read()).value);
+  linked.me.id='15557654321@c.us';                              // paired to another phone
+  ws.send(JSON.stringify({event:'session.status',session:'photo-test',payload:{status:'WORKING'}}));
+  while(!status.includes('event: inbox-status'))status+=new TextDecoder().decode((await statusReader.read()).value);
+  const keyAfter=await verified(first);                        // no clock advance
+  assert.match(keyAfter,/^[a-f0-9]{64}$/);
+  assert.notEqual(keyAfter,keyBefore);
+  await statusReader.cancel();
+  linked.me.id='15551234567@c.us';await advance(5001);          // back to the original phone
+  assert.equal(await verified(first),keyBefore);
   readerVoice.releaseLock();
   assert.equal((await revoke(first,id)).status,204);
   let ending='';
@@ -505,12 +679,21 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.equal((await login('wrong')).status,401);
   assert.equal((await me(first)).status,200);
   await post('logout'); // A different browser has no session cookies.
-  assert.equal((await login()).status,409);
+  // The right password takes the session over: no "already signed in" lockout,
+  // and the old browser is told why it was signed out.
+  const elsewhere=await login();
+  assert.equal(elsewhere.status,200);
+  assert.equal((await me(first)).status,401);
+  const takenOver=await post('refresh',first);
+  assert.equal(takenOver.status,401);
+  assert.equal((await takenOver.json()).reason,'signed_in_elsewhere');
+  first=cookie(elsewhere);
   const rotated = await post('refresh',first);
   assert.equal(rotated.status,200);
   const current = cookie(rotated);
-  assert.equal((await post('refresh',first)).status,401);
-  assert.equal((await login()).status,409);
+  // The browser missed that response and retries with the token it still
+  // holds: within the grace window it gets the session back, not a sign-out.
+  assert.equal((await post('refresh',first)).status,200);
   const refreshOnly = current.split('; ').find(c=>c.startsWith('wa_refresh='));
   assert.equal((await (await me(refreshOnly)).json()).refreshable,true);
   const stream = await fetch(base+'/incoming-text',{headers:{Cookie:current}});

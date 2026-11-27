@@ -47,7 +47,7 @@ export function labelDeletionRoutes({base,session,headers,store,adminAccess,visi
   }
   router.post('/:id/contacts',(req,res,next)=>{
     const {id}=req.params;
-    if(active.has(id))return res.status(409).json({error:'This label is being deleted.'});
+    if(active.has(id))return res.status(409).json({error:'This campaign is being deleted.'});
     adding.set(id,(adding.get(id)||0)+1);
     const finish=()=>{
       const count=adding.get(id)-1;
@@ -60,7 +60,7 @@ export function labelDeletionRoutes({base,session,headers,store,adminAccess,visi
   router.get('/history-changes',async(req,res)=>{
     try{
       const state=await read();
-      res.json({labels:state.labels,chats:Object.fromEntries(Object.entries(state.chats).filter(([id])=>visible(req,id))),personalChats:await personal(req)});
+      res.json({labels:req.campaign?.labels?Object.fromEntries(Object.entries(state.labels).filter(([id])=>req.campaign.labels.includes(id))):state.labels,chats:Object.fromEntries(Object.entries(state.chats).filter(([id])=>visible(req,id))),personalChats:await personal(req)});
     }catch{res.status(503).json({error:'Could not load history changes.'});}
   });
   router.get('/:id/deletion-preview',adminAccess,async(req,res)=>{
@@ -71,9 +71,9 @@ export function labelDeletionRoutes({base,session,headers,store,adminAccess,visi
   router.delete('/:id',adminAccess,async(req,res)=>{
     const {id}=req.params,{scope,expectedChats}=req.body || {};
     if(!/^[\w-]+$/.test(id)||Object.hasOwn(Object.prototype,id)||!['label','history','chats'].includes(scope)||
-        (scope==='chats'&&!Array.isArray(expectedChats)))return res.status(400).json({error:'Invalid label deletion request.'});
-    if(active.has(id))return res.status(409).json({error:'Deletion is already in progress for this label.'});
-    if(adding.has(id))return res.status(409).json({error:'Contacts are being added to this label. Retry when the additions finish.'});
+        (scope==='chats'&&!Array.isArray(expectedChats)))return res.status(400).json({error:'Invalid campaign deletion request.'});
+    if(active.has(id))return res.status(409).json({error:'Deletion is already in progress for this campaign.'});
+    if(adding.has(id))return res.status(409).json({error:'Contacts are being added to this campaign. Retry when the additions finish.'});
     active.add(id);
     const path='/labels/'+id;
     let deleted=0;
@@ -82,14 +82,14 @@ export function labelDeletionRoutes({base,session,headers,store,adminAccess,visi
       if(!labels.some(label=>String(label.id)===id)){
         const state=await read();
         const prior=state.pending?.[id] || state.labels[id];
-        if(prior?.scope!==scope)return res.status(404).json({error:'Label no longer exists.'});
+        if(prior?.scope!==scope)return res.status(404).json({error:'This campaign no longer exists.'});
         await record('labels',id,prior);
         return res.json({deleted});
       }
       if(scope==='chats'){
         const targets=await members(path);
         if(JSON.stringify(targets)!==JSON.stringify([...expectedChats].sort()))
-          return res.status(409).json({error:'Label membership changed. Review the updated chat count and confirm again.'});
+          return res.status(409).json({error:'Campaign members changed. Review the updated chat count and confirm again.'});
         for(const chat of targets){
           await upstream('/chats/'+encodeURIComponent(chat),'DELETE');
           deleted++;

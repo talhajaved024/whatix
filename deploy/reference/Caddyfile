@@ -2,17 +2,34 @@
     servers {
         # Nginx reaches the loopback-published web port via the VPS Docker gateway.
         trusted_proxies static 172.18.0.1/32
+        # Use the address Nginx saw, never a client-supplied X-Forwarded-For
+        # entry (login rate limits and the recorded login IP depend on it).
+        trusted_proxies_strict
     }
 }
 
 http://:80 {
+    # Security headers for every response (the page also ships its own
+    # Content-Security-Policy meta tag; frame-ancestors only works as a header).
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
+        -Server
+    }
     handle /api/* {
+        # Media sends carry base64 attachments (WAHA's limit is 50 MiB).
+        request_body {
+            max_size 60MB
+        }
         reverse_proxy api:8080 {
             header_up X-Forwarded-For {client_ip}
             flush_interval -1
         }
     }
     handle {
+        header Content-Security-Policy "frame-ancestors 'self'; object-src 'none'; base-uri 'none'"
+        header X-Frame-Options SAMEORIGIN
         root * /srv
         try_files {path} /index.html
         file_server

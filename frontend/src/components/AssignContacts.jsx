@@ -3,14 +3,15 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {authorizedFetch} from '../auth.js';
 import {loadDirectContacts} from '../contacts-directory.js';
 import ContactAvatar from './ContactAvatar.jsx';
-// Assign one or more WhatsApp contacts to a single regular user. The API takes one number per POST,
-// so selections are saved one at a time with a status per contact; failures can be retried.
+import {campaignClient} from '../campaign-directory.js';
+import Dropdown from './Dropdown.jsx';
+// Assign one or more WhatsApp contacts of one campaign number to a single regular user. The API takes
+// one number per POST, so selections are saved one at a time with a status per contact; failures can be retried.
 const PHONE=/^[1-9]\d{0,14}$/;
 const digitsOf=value=>String(value??'').replace(/[+\s()\-]/g,'');
 const offline=err=>err instanceof TypeError?'Could not reach the server. Check your connection and try again.':err.message;
 const statusText={saving:'Saving…',added:'Assigned',already:'Already assigned',failed:'Failed'};
-const userLabel=u=>u.name&&u.name!==u.username?`${u.name} (@${u.username})`:'@'+u.username;
-export default function AssignContacts({users,initialUsername,handled,onClose}){
+export default function AssignContacts({users,campaign,initialUsername,handled,onClose}){
  const dialog=useRef(null),live=useRef(true),stop=useRef(false);
  const [username,setUsername]=useState(initialUsername||'');
  const [directory,setDirectory]=useState(null);const[directoryError,setDirectoryError]=useState('');const[reload,setReload]=useState(0);
@@ -22,16 +23,16 @@ export default function AssignContacts({users,initialUsername,handled,onClose}){
  useEffect(()=>{
   const controller=new AbortController();
   setDirectory(null);setDirectoryError('');
-  loadDirectContacts(controller.signal).then(setDirectory).catch(err=>{if(!controller.signal.aborted)setDirectoryError(offline(err));});
+  loadDirectContacts(controller.signal,campaign.name).then(setDirectory).catch(err=>{if(!controller.signal.aborted)setDirectoryError(offline(err));});
   return ()=>controller.abort();
- },[reload]);
+ },[reload,campaign.name]);
  // Numbers this user already has are shown ticked and locked, so they are never sent again (no 409s).
  useEffect(()=>{
   setAssigned(null);setAssignedError('');
   if(!username)return;
   const controller=new AbortController();
   (async()=>{
-   const response=await authorizedFetch('/api/assigned-numbers?'+new URLSearchParams({username}),{signal:controller.signal,cache:'no-store'});
+   const response=await authorizedFetch(campaignClient(campaign).url('/api/campaign-contacts?'+new URLSearchParams({username})),{signal:controller.signal,cache:'no-store'});
    if(controller.signal.aborted)return;
    if(handled(response)){onClose(false);return;}
    const body=await response.json().catch(()=>null);
@@ -39,7 +40,7 @@ export default function AssignContacts({users,initialUsername,handled,onClose}){
    setAssigned(new Set((Array.isArray(body?.assignments)?body.assignments:[]).map(r=>String(r.phoneNumber))));
   })().catch(err=>{if(!controller.signal.aborted)setAssignedError(offline(err));});
   return ()=>controller.abort();
- },[username,handled,onClose]);
+ },[username,handled,onClose,campaign]);
  const contacts=useMemo(()=>{
   const list=directory?.contacts??[],known=new Set(list.map(c=>c.phone));
   return [...extras.filter(phone=>!known.has(phone)).map(phone=>({phone,name:''})),...list];
@@ -71,16 +72,17 @@ export default function AssignContacts({users,initialUsername,handled,onClose}){
     if(stop.current)break;
     update(phone,'saving');
     try{
-     const response=await authorizedFetch('/api/admin/assigned-numbers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:Number(phone),username})});
+     const response=await campaignClient(campaign).write('POST','/api/campaign-contacts',{phoneNumber:Number(phone),username});
      if(handled(response)){stop.current=true;update(phone,'failed','Your session changed. Sign in again and retry.');break;}
      if(response.status===201){update(phone,'added');continue;}
      const body=await response.json().catch(()=>null);
      const message=typeof body?.error==='string'?body.error:'Could not assign this number (HTTP '+response.status+').';
-     if(response.status===409)update(phone,'already',message);
+     if(response.status===409&&/already assigned/i.test(message))update(phone,'already',message);
      else{
       update(phone,'failed',message);
       // These apply to the whole request, not one number: stop instead of repeating the same error.
-      if(response.status===422||response.status===503){setError(message);break;}
+      // 409 here means the campaign number changed, 422 that the user lost this campaign.
+      if([409,422,503].includes(response.status)){setError(message);break;}
      }
     }catch(err){update(phone,'failed',offline(err));}
    }
@@ -96,12 +98,11 @@ export default function AssignContacts({users,initialUsername,handled,onClose}){
  const finish=()=>onClose(added>0?`Assigned ${added} number${added===1?'':'s'} to ${who?.name||username}.`:false);
  return <dialog ref={dialog} className="idle-dialog um-dialog an-assign" aria-labelledby="an-assign-title" onCancel={e=>{e.preventDefault();if(!busy)finish();}}>
   <h2 id="an-assign-title">Assign contacts</h2>
+  <p className="an-hint">Campaign +{campaign.phone} · {campaign.name}</p>
   <div className="an-fields">
    <label className="um-field">User
-    <select value={username} disabled={locked} onChange={e=>{setUsername(e.target.value);}}>
-     <option value="" disabled>Choose a user</option>
-     {users.map(u=><option key={u.id} value={u.username}>{userLabel(u)}</option>)}
-    </select>
+    <Dropdown label="User" value={username} disabled={locked} onChange={setUsername} placeholder="Choose a user" searchPlaceholder="Search users"
+     options={users.map(u=>({value:u.username,label:u.name||u.username,description:'@'+u.username,icon:'person'}))}/>
     {assignedError&&<small className="um-error" role="alert">{assignedError}</small>}
    </label>
    <fieldset className="an-contacts" disabled={locked||!username}>
@@ -125,6 +126,7 @@ export default function AssignContacts({users,initialUsername,handled,onClose}){
        {already&&<span className="um-badge">Assigned</span>}
        {r&&<span className={'an-status '+r.status} title={r.error||undefined}>{statusText[r.status]??''}</span>}
       </label>{r?.status==='failed'&&r.error&&<small className="um-error an-row-error">{r.error}</small>}</li>;})}</ul>}
+     {directory.empty>0&&<small role="status">{directory.empty} chat{directory.empty===1?'':'s'} with no messages {directory.empty===1?'is':'are'} not listed.</small>}
      {directory.unresolved>0&&<small role="status">{directory.unresolved} chat{directory.unresolved===1?'':'s'} without a known phone number {directory.unresolved===1?'is':'are'} not listed.</small>}
     </>}
     <div className="an-extra">

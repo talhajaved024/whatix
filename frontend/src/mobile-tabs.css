@@ -1,0 +1,52 @@
+/* Phone bottom navigation (MobileTabs.jsx). Wider screens never see it. */
+.mobile-tabs-host{display:none}
+@media(max-width:680px){
+ :root{--mt-height:60px;--mt-gap:10px}
+ .mobile-tabs-host{display:block}
+ /* The header tabs move to the bottom bar, so the header is one row. */
+ .mast>.mast-tabs{display:none}
+ .mobile-tabs{position:fixed;z-index:46;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));
+  bottom:calc(var(--mt-gap) + env(safe-area-inset-bottom));display:grid;grid-auto-columns:minmax(0,1fr);grid-auto-flow:column;gap:2px;
+  height:var(--mt-height);padding:6px;box-sizing:border-box;border:1px solid #ffffff24;border-radius:22px;
+  background:#123e36d9;-webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%);
+  box-shadow:0 14px 40px #04120f73,inset 0 1px 0 #ffffff1f}
+ .mobile-tabs button{display:grid;place-items:center;min-width:0;padding:0;font:inherit;color:#b9d6c8;
+  background:none;border:0;border-radius:16px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:color .2s}
+ .mt-icon{display:grid;place-items:center;width:56px;height:40px;border-radius:999px;transition:background .25s,color .2s,transform .2s cubic-bezier(.2,.9,.3,1.3)}
+ .mobile-tabs button[aria-current=page]{color:#f2fbf5}
+ .mobile-tabs button[aria-current=page] .mt-icon{color:#0f3a2f;background:linear-gradient(135deg,#a8e9bd,#6fd3a0);box-shadow:0 4px 14px #6fd3a04d}
+ .mobile-tabs button[aria-expanded=true]{color:#f2fbf5}
+ .mobile-tabs button[aria-expanded=true] .mt-icon{background:#ffffff1f}
+ .mobile-tabs button:active .mt-icon{transform:scale(.92)}
+ .mobile-tabs button:focus-visible{outline:2px solid #a8e9bd;outline-offset:-2px}
+
+ /* Above the team chat dock (z-index 40), so its button never covers the sheet. */
+ .mt-scrim{position:fixed;inset:0;z-index:44;background:#0a1614a6;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:mt-fade .2s ease both}
+ .mt-sheet{position:fixed;z-index:45;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));
+  bottom:calc(var(--mt-gap) + env(safe-area-inset-bottom) + var(--mt-height) + 8px);display:grid;gap:4px;padding:8px 8px 10px;
+  border:1px solid #ffffffd9;border-radius:22px;background:#fbfdfbf5;color:#183a34;
+  box-shadow:0 22px 60px #04120f59,inset 0 1px 0 #fff;animation:mt-up .26s cubic-bezier(.2,.9,.3,1.1) both}
+ .mt-grip{justify-self:center;width:36px;height:4px;margin:2px 0 6px;border-radius:99px;background:#cdd8cf}
+ .mt-sheet button{display:flex;align-items:center;justify-content:flex-start;gap:12px;min-height:52px;padding:8px 10px;font:inherit;font-size:16px;font-weight:600;text-align:left;
+  color:#183a34;background:none;border:0;border-radius:14px;cursor:pointer}
+ .mt-sheet button:active,.mt-sheet button:focus-visible{outline:none;background:#e3f4e9}
+ .mt-sheet button[aria-current=page]{color:#0f4a38;background:#e3f4e9}
+ .mt-sheet-icon{display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:12px;color:#167456;background:#e3f4e9}
+ .mt-sheet button[aria-current=page] .mt-sheet-icon{color:#fff;background:linear-gradient(135deg,#25a079,#167456)}
+ .mt-sheet-check{margin-left:auto;color:#167456}
+ @keyframes mt-up{from{opacity:0;transform:translateY(16px)}}
+ @keyframes mt-fade{from{opacity:0}}
+
+ /* Room for the bar under scrolling content, and the team chat button sits above it. */
+ body:has(.mobile-tabs) :is(.audience,.admin-panel){padding-bottom:calc(88px + var(--mt-height) + var(--mt-gap) + env(safe-area-inset-bottom))}
+ body:has(.mobile-tabs) .number-dashboard{padding-bottom:calc(var(--mt-height) + var(--mt-gap) + 8px + env(safe-area-inset-bottom))}
+ body:has(.mobile-tabs) .tc-launch-wrap{margin-bottom:calc(14px + var(--mt-height) + var(--mt-gap) + env(safe-area-inset-bottom))}
+ /* Out of the way in an open conversation (the back arrow returns to the list), an open team chat, and while typing. */
+ body:has(main.has-chat:not([hidden])) .mobile-tabs-host,
+ body:has(.tc-window:not(.is-minimized)) .mobile-tabs-host,
+ body:has(:is(input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea):focus) .mobile-tabs-host{display:none}
+}
+@media(max-width:680px) and (prefers-reduced-motion:reduce){.mt-sheet,.mt-scrim{animation:none}.mt-icon{transition:none}}
+:root[data-perf=lite] .mobile-tabs{background:#123e36;-webkit-backdrop-filter:none;backdrop-filter:none}
+:root[data-perf=lite] .mt-scrim{-webkit-backdrop-filter:none;backdrop-filter:none}
+@media(forced-colors:active){.mobile-tabs{border:1px solid CanvasText}.mobile-tabs button[aria-current=page]{outline:2px solid Highlight}}

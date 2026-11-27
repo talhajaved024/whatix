@@ -1,5 +1,6 @@
 import { authorizedFetch } from "./auth.js";
-export const SESSION = import.meta.env?.VITE_WAHA_SESSION || "TEST_BULK";
+import {SESSION} from "./inbox.js";
+export {SESSION};
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
 
 function recipientId(number) {
@@ -18,7 +19,7 @@ export function uploadSizeError(kind, number, file, caption, convert = false) {
   const envelope = JSON.stringify(mediaPayload(kind, number, metadata, caption, convert));
   const bytes = new TextEncoder().encode(envelope).length + 4 * Math.ceil(file.size / 3);
   if (bytes <= MAX_BODY_BYTES) return "";
-  return `Encoded request (${bytes.toLocaleString()} bytes) exceeds WAHA's 50 MiB limit. Choose a smaller file or use a URL accessible to WAHA.`;
+  return `Encoded request (${bytes.toLocaleString()} bytes) exceeds WAHA's 50 MiB limit. Choose a smaller file or send it as a media link.`;
 }
 
 export function parseRecipients(input) {

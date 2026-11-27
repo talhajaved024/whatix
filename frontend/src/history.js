@@ -1,10 +1,23 @@
-import { SESSION } from "./sender.js";
 import { mergeAck } from "./receipts.js";
+import { onInboxChange } from "./inbox.js";
 
-let database;
+let database,accountKey;
+// Another inbox has another history: close this one; the next account binds afresh.
+onInboxChange(() => {
+  const open = database;
+  database = undefined; accountKey = undefined;
+  open?.then(db => db.close()).catch(() => {});
+});
+export function bindHistory(account){
+  if(!/^[0-9a-f]{64}$/.test(account))return false;
+  if(accountKey && accountKey!==account)return false;
+  accountKey=account;
+  return true;
+}
 function open() {
+  if (!accountKey) throw Error('Select a connected WhatsApp account first');
   if (!database) database = new Promise((resolve,reject) => {
-    const request = indexedDB.open("dispatch-history-" + SESSION, 3);
+    const request = indexedDB.open("dispatch-account-history-" + accountKey, 3);
     request.onupgradeneeded = () => {
       for (const name of ["messages","receipts","seen","contacts","viewed","reactions"])
         if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name);
@@ -44,24 +57,58 @@ export async function save(store, key, value) {
   });
 }
 
-export async function loadHistory() {
+// How long this browser keeps its own copy of the history. Everything is read
+// into memory at startup, so without a limit startup slows down as months of
+// history pile up. Older messages are still in WhatsApp (WAHA) and appear when
+// a chat is opened; what goes is only the local extras (broadcast grouping,
+// delivery ticks, read markers, reactions) of items older than this.
+export const HISTORY_DAYS = 90;
+const DAY_MS = 86400000;
+const finishedJob = status => ["completed","completed_with_errors","rejected"].includes(status);
+
+// Reads the saved history and, in the same pass, drops items older than
+// HISTORY_DAYS together with their receipts, read markers and reactions.
+// Kept whatever their age: broadcasts still running, items without a time,
+// and the contacts mapping (linked IDs to phones).
+export async function loadHistory(now = Date.now()) {
   const db = await open();
+  const cutoff = now - HISTORY_DAYS * DAY_MS;
   const stores = ["messages","receipts","seen","contacts","viewed","reactions"];
-  const tx = db.transaction(stores);
-  const maps = await Promise.all(stores.map(name => new Promise((resolve,reject) => {
-    const map = new Map();
+  const tx = db.transaction(stores,"readwrite");
+  const done = new Promise((resolve,reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); });
+  const maps = Object.fromEntries(stores.map(name => [name,new Map()]));
+  const dropped = new Set();   // message keys, their WAHA IDs and receipt IDs
+  const expired = item => Number.isFinite(item?.timestamp) && item.timestamp < cutoff && !(item.job && !finishedJob(item.job.status));
+  const reactionTime = value => { const at = Number(value?.at); return at > 0 && at < 1e12 ? at * 1000 : at; };
+  const keep = {
+    messages: (key,value) => {
+      if (!expired(value)) return true;
+      dropped.add(String(key)); dropped.add(String(key).replace(/^(?:incoming|remote):/,""));
+      for (const result of value.results || []) if (result?.id) dropped.add(String(result.id));
+      return false;
+    },
+    receipts: key => !dropped.has(String(key)),
+    seen: key => !dropped.has(String(key)),
+    viewed: key => !dropped.has(String(key)),
+    contacts: () => true,
+    reactions: (key,value) => !dropped.has(String(key).split("|")[0]) && !(reactionTime(value) < cutoff)
+  };
+  // Messages first, so the other stores know which IDs went with them.
+  function scan(name,next) {
     const request = tx.objectStore(name).openCursor();
-    request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const cursor = request.result;
-      if (!cursor) return resolve(map);
-      map.set(cursor.key,cursor.value);
+      if (!cursor) return next?.();
+      if (keep[name](cursor.key,cursor.value)) maps[name].set(cursor.key,cursor.value);
+      else cursor.delete();
       cursor.continue();
     };
-  })));
+  }
+  scan("messages",() => { for (const name of stores.slice(1)) scan(name); });
+  await done;
   const time = item => Number.isFinite(item.timestamp) ? item.timestamp : 0;
-  return {messages:[...maps[0].values()].sort((a,b)=>time(a)-time(b)),
-    reactions:maps[5],receipts:maps[1],seen:maps[2],contacts:maps[3],viewed:new Set([...maps[2].keys(),...maps[4].keys()])};
+  return {messages:[...maps.messages.values()].sort((a,b)=>time(a)-time(b)),
+    reactions:maps.reactions,receipts:maps.receipts,seen:maps.seen,contacts:maps.contacts,viewed:new Set([...maps.seen.keys(),...maps.viewed.keys()])};
 }
 
 export async function saveViewed(ids) {

@@ -2,6 +2,8 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {authorizedFetch,checkSession} from './auth.js';
 import UserProfile from './UserProfile.jsx';
 import ContactAvatar from './components/ContactAvatar.jsx';
+import Icon from './components/Icon.jsx';
+import Pagination,{pageQuery,useDebounced} from './components/Pagination.jsx';
 // Super-user user directory: every account (online, offline, banned), ending sessions
 // (optionally banning), and toggling a saved ban. Polling is a plain authorized GET, never counted as activity.
 // Ids: the numeric account `id` addresses the account (ban); the opaque `sessionId` addresses one sign-in (end).
@@ -16,41 +18,46 @@ export default function Users({id,labelledBy,onForbidden,superUser,signedInUsern
  const [saving,setSaving]=useState(()=>new Set());
  const [selected,setSelected]=useState(null);
  const [target,setTarget]=useState(null);const[ban,setBan]=useState(false);const[ending,setEnding]=useState(false);const[endError,setEndError]=useState('');
- const busy=useRef(null),live=useRef(true),dialog=useRef(null);
+ const [removing,setRemoving]=useState(null);const[deleting,setDeleting]=useState(false);const[deleteError,setDeleteError]=useState('');
+ const deleteDialog=useRef(null);
+ const [page,setPage]=useState(1);const[search,setSearch]=useState('');const query=useDebounced(search.trim().toLowerCase());
+ const [total,setTotal]=useState(0);const[summary,setSummary]=useState(null);const[fetching,setFetching]=useState(false);
+ const seq=useRef(0),shownView=useRef(''),live=useRef(true),dialog=useRef(null);
  // 401: authorizedFetch already tried one refresh; checkSession settles it (back to login when the session is gone).
  const handled=useCallback(response=>{
   if(response.status===403){onForbidden();return true;}
   if(response.status===401){checkSession().catch(()=>{});return true;}
   return false;
  },[onForbidden]);
- const load=useCallback(()=>{
-  busy.current??=(async()=>{
-   try{
-    const response=await authorizedFetch('/api/admin/users',{cache:'no-store'});
-    if(!live.current||handled(response))return;
-    if(!response.ok)throw await failure(response,'The user directory could not be loaded');
-    const body=await response.json();if(!live.current)return;
-    const list=Array.isArray(body?.users)?body.users:[];
-    list.sort((a,b)=>(b.isSuperUser-a.isSuperUser)||(b.isAdmin-a.isAdmin)||((b.sessionId!=null)-(a.sessionId!=null))||String(a.name??a.username).localeCompare(String(b.name??b.username)));
-    setUsers(list);setError('');setUpdated(Date.now());
-   }catch(err){if(live.current)setError(offline(err));}
-  })().finally(()=>busy.current=null);
-  return busy.current;
- },[handled]);
- const refreshAfterChange=useCallback(async()=>{
-  await busy.current;
-  if(live.current)await load();
- },[load]);
+ // One server page at a time (sorted and searched there); the newest request wins.
+ const load=useCallback(async()=>{
+  const mine=++seq.current,view=page+'|'+query;
+  // Dim the grid only for a new page or search, not for background refreshes.
+  if(view!==shownView.current)setFetching(true);
+  try{
+   const response=await authorizedFetch('/api/admin/users?'+pageQuery(page,query),{cache:'no-store'});
+   if(!live.current||mine!==seq.current||handled(response))return;
+   if(!response.ok)throw await failure(response,'The user directory could not be loaded');
+   const body=await response.json();if(!live.current||mine!==seq.current)return;
+   // Accounts removed elsewhere can leave this page past the end.
+   if(body.total>0&&body.page>body.pages){setPage(body.pages);return;}
+   shownView.current=view;
+   setUsers(Array.isArray(body?.users)?body.users:[]);setTotal(body.total??0);setSummary(body.summary??null);setError('');setUpdated(Date.now());
+  }catch(err){if(live.current&&mine===seq.current)setError(offline(err));}
+  finally{if(live.current&&mine===seq.current)setFetching(false);}
+ },[handled,page,query]);
+ const refreshAfterChange=useCallback(()=>live.current?load():undefined,[load]);
  const closeProfile=useCallback(message=>{
   setSelected(null);setNote(message);
   if(message)void refreshAfterChange();
  },[refreshAfterChange]);
+ useEffect(()=>{live.current=true;return ()=>{live.current=false;};},[]);
  useEffect(()=>{
-  live.current=true;load();
+  load();
   const poll=setInterval(()=>{if(document.visibilityState==='visible')load();},POLL);
   const shown=()=>{if(document.visibilityState==='visible')load();};
   document.addEventListener('visibilitychange',shown);
-  return ()=>{live.current=false;clearInterval(poll);document.removeEventListener('visibilitychange',shown);};
+  return ()=>{clearInterval(poll);document.removeEventListener('visibilitychange',shown);};
  },[load]);
  // Controlled by the saved value: on failure nothing changes, so the box keeps showing what the server holds.
  async function toggleBan(u,next){
@@ -67,6 +74,19 @@ export default function Users({id,labelledBy,onForbidden,superUser,signedInUsern
   }catch(err){setError(offline(err));}
   finally{if(live.current)setSaving(s=>{const n=new Set(s);n.delete(u.id);return n;});}
  }
+ function openDelete(u){setRemoving(u);setDeleteError('');setDeleting(false);}
+ useEffect(()=>{const d=deleteDialog.current;if(!d)return;if(removing&&!d.open)d.showModal();else if(!removing&&d.open)d.close();},[removing]);
+ async function confirmDelete(){
+  if(!removing||deleting)return;const u=removing;
+  setDeleting(true);setDeleteError('');
+  try{
+   const response=await authorizedFetch('/api/admin/users/'+encodeURIComponent(u.id),{method:'DELETE'});
+   if(handled(response)){setRemoving(null);return;}
+   if(response.status===204||response.status===404){setRemoving(null);setNote(response.status===204?`Deleted ${u.username}.`:`${u.username}'s account no longer exists.`);await load();return;}
+   throw await failure(response,'Could not delete the account');
+  }catch(err){setDeleteError(offline(err));}
+  finally{setDeleting(false);}
+ }
  function openEnd(u){setTarget(u);setBan(false);setEndError('');setEnding(false);}
  useEffect(()=>{const d=dialog.current;if(!d)return;if(target&&!d.open)d.showModal();else if(!target&&d.open)d.close();},[target]);
  async function confirmEnd(){
@@ -81,39 +101,61 @@ export default function Users({id,labelledBy,onForbidden,superUser,signedInUsern
   }catch(err){setEndError(offline(err));}
   finally{setEnding(false);}
  }
- const online=users?.filter(u=>u.sessionId!=null).length??0;
+ const accounts=summary?.total??total,online=summary?.online??0;
  if(selected!==null)return <section id={id} role="tabpanel" aria-labelledby={labelledBy} className="admin-panel">
   <UserProfile key={selected} accountId={selected} superUser={superUser} signedInUsername={signedInUsername} handled={handled} onClose={closeProfile} onUpdated={refreshAfterChange}/>
  </section>;
  return <section id={id} role="tabpanel" aria-labelledby={labelledBy} className="admin-panel">
   <header className="admin-head">
-   <div><h1>Users</h1><p>{users===null?'Loading accounts…':`${users.length} account${users.length===1?'':'s'} · ${online} signed in`}{updated>0&&<span> · Updated {new Date(updated).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>}</p></div>
+   <div><h1>Users</h1><p>{users===null?'Loading accounts…':`${accounts} account${accounts===1?'':'s'} · ${online} signed in`}{updated>0&&<span> · Updated {new Date(updated).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>}</p></div>
    <div className="um-head-actions">
     <button type="button" className="admin-refresh" onClick={load}>Refresh</button>
    </div>
   </header>
+  <div className="cp-toolbar">
+   <label className="cp-search"><Icon name="search" size={16}/><span className="idle-sr">Search users</span>
+    <input type="search" value={search} placeholder="Search name, username or phone" onChange={e=>{setSearch(e.target.value);setPage(1);}}/></label>
+  </div>
   {error&&<div className="admin-msg error" role="alert">{error}</div>}
   {note&&<div className="admin-msg" role="status">{note}</div>}
   {users===null?<div className="admin-empty" aria-busy="true"><span className="admin-spin" aria-hidden="true"/>Loading…</div>
-  :!users.length?<div className="admin-empty"><h2>No accounts</h2><p>Register a user to get started.</p></div>
-  :<div className="admin-table-wrap"><table className="admin-table um-table">
+  :!users.length?<div className="admin-empty">{query?<><h2>No accounts match</h2><p>Try another name, username or phone.</p></>:<><h2>No accounts</h2><p>Register a user to get started.</p></>}</div>
+  :<><div className={'admin-table-wrap'+(fetching?' grid-loading':'')} aria-busy={fetching}><table className="admin-table um-table">
    <caption className="idle-sr">All accounts</caption>
    <thead><tr><th scope="col">User</th><th scope="col">Status</th><th scope="col">Phone</th><th scope="col">Created</th><th scope="col">Last IP</th><th scope="col">Ban login</th><th scope="col"><span className="idle-sr">Actions</span></th></tr></thead>
    <tbody>{users.map(u=>{
     const on=u.sessionId!=null,showControls=!u.isSuperUser&&u.username!==signedInUsername,managed=superUser||!u.isAdmin;
     return <tr key={u.id} className={u.banLogin?'um-banned':undefined}>
-    <th scope="row"><button type="button" className="admin-user um-profile-link" aria-label={`Open profile for ${u.username}`} onClick={()=>setSelected(u.id)}><ContactAvatar className="admin-avatar" contactId={u.phoneNumber} fallback={String(u.name||u.username||'?').slice(0,1).toUpperCase()}/>
+    <th scope="row"><div className="admin-user"><ContactAvatar className="admin-avatar" contactId={u.phoneNumber} fallback={String(u.name||u.username||'?').slice(0,1).toUpperCase()}/>
      <span className="um-who"><strong>{show(u.name)}</strong><small>@{show(u.username)}</small>
-      {(u.isSuperUser||u.isAdmin)&&<span className="um-badges">{u.isSuperUser&&<span className="um-badge super">Super user</span>}{u.isAdmin&&!u.isSuperUser&&<span className="um-badge">Admin</span>}</span>}</span></button></th>
-    <td data-label="Status"><span className={'um-status'+(on?' on':'')}>{on?'Signed in':'Offline'}</span>{u.banLogin&&<span className="um-badge banned">Banned</span>}</td>
+      {(u.isSuperUser||u.isAdmin)&&<span className="um-badges">{u.isSuperUser&&<span className="um-badge super">Super user</span>}{u.isAdmin&&!u.isSuperUser&&<span className="um-badge">Admin</span>}</span>}</span></div></th>
+    <td data-label="Status"><span className={'um-status'+(on?' on':'')}>{on?'Signed in':'Offline'}</span>{u.banLogin&&<span className="um-badge banned">Banned</span>}{u.mustChangePassword&&<span className="um-badge pending" title="Has not chosen their own password yet. They will be asked at their next sign-in.">Password pending</span>}</td>
     <td data-label="Phone" className="um-mono">{show(u.phoneNumber)}</td>
     <td data-label="Created">{date(u.dateCreated)}</td>
     <td data-label="Last IP" className="um-mono">{show(u.userIp)}</td>
     <td data-label="Ban login">{showControls?<label className="um-switch" title={managed?undefined:'Only the super user can change an admin’s login access.'}><input type="checkbox" checked={!!u.banLogin} disabled={!managed||saving.has(u.id)} onChange={e=>toggleBan(u,e.target.checked)}
       aria-label={`Ban login for ${u.username}`}/><span aria-hidden="true"/>{saving.has(u.id)&&<small>Saving…</small>}</label>:u.banLogin?'Yes':'No'}</td>
-    <td>{showControls&&on&&<button type="button" className="admin-end" disabled={!managed} title={managed?undefined:'Only the super user can end an admin’s session.'} onClick={()=>openEnd(u)} aria-label={`End ${u.username}'s session`}>End session</button>}</td>
+    <td data-label="Actions"><span className="row-actions">
+     {showControls&&managed
+      ?<button type="button" className="row-icon" title="Edit user" aria-label={`Edit ${u.username}`} onClick={()=>setSelected(u.id)}><Icon name="edit" size={17}/></button>
+      :<button type="button" className="row-icon" title="View profile" aria-label={`View profile for ${u.username}`} onClick={()=>setSelected(u.id)}><Icon name="eye" size={17}/></button>}
+     {showControls&&on&&<button type="button" className="row-icon danger" disabled={!managed} title={managed?'End session':'Only the super user can end an admin’s session.'} onClick={()=>openEnd(u)} aria-label={`End ${u.username}'s session`}><Icon name="logout" size={17}/></button>}
+     {showControls&&managed&&<button type="button" className="row-icon danger" title="Delete user" aria-label={`Delete ${u.username}`} onClick={()=>openDelete(u)}><Icon name="trash" size={17}/></button>}
+    </span></td>
    </tr>;})}</tbody>
-  </table></div>}
+  </table></div>
+  <Pagination page={page} total={total} onPage={setPage} disabled={fetching} noun="accounts"/></>}
+  <dialog ref={deleteDialog} className="idle-dialog um-dialog" aria-labelledby="um-delete-title" aria-describedby="um-delete-desc" onCancel={e=>{if(deleting)e.preventDefault();else setRemoving(null);}} onClose={()=>setRemoving(null)}>
+   {removing&&<>
+    <h2 id="um-delete-title">Delete {removing.name||removing.username}?</h2>
+    <p id="um-delete-desc">@{removing.username} will be signed out, and the account, its campaign numbers and assigned customers are removed permanently.</p>
+    {deleteError&&<p className="idle-error" role="alert">{deleteError}</p>}
+    <div className="idle-actions">
+     <button type="button" className="idle-leave" autoFocus disabled={deleting} onClick={()=>setRemoving(null)}>Cancel</button>
+     <button type="button" className="um-danger" disabled={deleting} onClick={confirmDelete}>{deleting?'Deleting…':'Delete user'}</button>
+    </div>
+   </>}
+  </dialog>
   <dialog ref={dialog} className="idle-dialog um-dialog" aria-labelledby="um-end-title" aria-describedby="um-end-desc" onCancel={e=>{if(ending)e.preventDefault();else setTarget(null);}} onClose={()=>setTarget(null)}>
    {target&&<>
     <h2 id="um-end-title">End {target.name||target.username}'s session?</h2>

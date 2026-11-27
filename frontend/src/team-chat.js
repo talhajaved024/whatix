@@ -5,7 +5,7 @@
 // Outgoing message states: sending → sent (server has it, recipient offline)
 // → delivered (reached their browser) → read (they opened it). failed if refused.
 import {useCallback,useEffect,useMemo,useReducer,useRef} from 'react';
-import {checkSession,sessionRevoked} from './auth.js';
+import {checkSession,sessionRevoked,signedInElsewhere} from './auth.js';
 
 export const GROUP='group';
 export const isPrivileged=role=>role==='admin' || role==='super_user';
@@ -156,6 +156,7 @@ export function useTeamChat(){
         if(stopped)return;
         dispatch({type:'status',status:'offline'});
         if(event.code===4001){sessionRevoked();return;}
+        if(event.code===4002){signedInElsewhere();return;}
         // Upgrade refused (often an expired access token): let auth refresh first.
         const delay=Math.min(15000,1000*2**attempt++);
         timer=setTimeout(()=>{

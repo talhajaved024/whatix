@@ -6,10 +6,21 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import {connectDatabase} from '../src/sqlite.js';
+import {completePasswordSetup} from './test-database.js';
 
 test('assigned numbers: admin management and per-user visibility', {timeout:20000}, async t => {
+  // Just enough WAHA for the campaign gate to identify the inbox's number.
+  let identityLookups=0;
+  const waha=createServer((req,res)=>{
+    if(req.url==='/api/sessions/assign-test')identityLookups++;
+    if(req.url==='/api/sessions/assign-test')return res.end(JSON.stringify({name:'assign-test',status:'WORKING',me:{id:'15550001111@c.us'}}));
+    res.writeHead(404);res.end('{}');
+  });
+  waha.listen(0,'127.0.0.1');await once(waha,'listening');
+  t.after(()=>waha.close());
   const directory=await mkdtemp(join(tmpdir(),'wa-assigned-'));
   const password=randomUUID();
   const child=spawn(process.execPath,['src/server.js'],{env:{
@@ -17,7 +28,7 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
     USER_WORKBOOK_PATH:join(directory,'users.xlsx'),WHATIX_DB_PATH:join(directory,'whatix.db'),
     APP_USERS_JSON:JSON.stringify(['alice','bob'].map(username=>({username,password}))),
     JWT_ACCESS_SECRET:randomUUID(), JWT_REFRESH_SECRET:randomUUID(), WAHA_API_KEY:'fixture',
-    WAHA_URL:'http://127.0.0.1:9', WAHA_SESSION:'assign-test'
+    WAHA_URL:'http://127.0.0.1:'+waha.address().port, WAHA_SESSION:'assign-test'
   },stdio:['ignore','pipe','inherit']});
   t.after(async()=>{
     if(child.exitCode===null && child.signalCode===null){
@@ -38,7 +49,8 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
   const json=async response=>({status:response.status,body:response.status===204?null:await response.json()});
 
   const superUser=await login('tester');
-  assert.equal((await call(superUser,'POST','/admin/users',{username:'carol',password,name:'Carol',isAdmin:true})).status,201);
+  assert.equal((await call(superUser,'POST','/admin/users',{username:'carol',password,name:'Carol',phoneNumber:923001110051,isAdmin:true})).status,201);
+  await completePasswordSetup(base,'carol',password);
   const admin=await login('carol');
   const alice=await login('alice');
   const bob=await login('bob');
@@ -46,7 +58,8 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
   // Anonymous and regular users cannot manage.
   assert.equal((await call('','GET','/assigned-numbers')).status,401);
   assert.equal((await call(alice,'POST','/admin/assigned-numbers',{phoneNumber:923001234567,username:'alice'})).status,403);
-  assert.deepEqual(await json(await call(alice,'GET','/assigned-numbers')),{status:200,body:{assignments:[]}});
+  // A regular user sees nothing until a campaign (WhatsApp inbox) is assigned to them.
+  assert.equal((await call(alice,'GET','/assigned-numbers')).status,403);
 
   // Validation.
   assert.equal((await call(superUser,'POST','/admin/assigned-numbers',{phoneNumber:'923001234567',username:'alice'})).status,400);
@@ -62,10 +75,7 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
   assert.equal((await call(admin,'POST','/admin/assigned-numbers',{phoneNumber:447700900123,username:'bob'})).status,201);
   assert.equal((await call(admin,'POST','/admin/assigned-numbers',{phoneNumber:15551234567,username:'alice'})).status,201);
 
-  // Regular users only see their own rows, whatever query they send.
-  const own=await json(await call(alice,'GET','/assigned-numbers?username=bob'));
-  assert.deepEqual(own.body.assignments.map(a=>a.id),[1,3]);
-  assert.deepEqual((await json(await call(bob,'GET','/assigned-numbers'))).body.assignments,[{id:2,phoneNumber:447700900123,username:'bob'}]);
+  assert.equal((await call(bob,'GET','/assigned-numbers')).status,403);
   assert.equal((await json(await call(admin,'GET','/assigned-numbers'))).body.assignments.length,3);
   assert.equal((await json(await call(admin,'GET','/assigned-numbers?username=bob'))).body.assignments.length,1);
 
@@ -83,7 +93,7 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
   // Account rename and deletion carry over to assignments.
   const {users}=(await json(await call(superUser,'GET','/admin/users'))).body;
   const id=name=>users.find(u=>u.username===name).id;
-  assert.equal((await call(superUser,'PATCH','/admin/users/'+id('alice'),{username:'alicia'})).status,200);
+  assert.equal((await call(superUser,'PATCH','/admin/users/'+id('alice'),{username:'alicia',phoneNumber:923001110094})).status,200);
   assert.deepEqual((await json(await call(admin,'GET','/assigned-numbers?username=alicia'))).body.assignments.map(a=>a.id),[1,3]);
   assert.equal((await call(admin,'DELETE','/admin/users/'+id('bob'))).status,204);
   assert.deepEqual((await json(await call(admin,'GET','/assigned-numbers'))).body.assignments.map(a=>a.username),['alicia','alicia']);
@@ -98,4 +108,22 @@ test('assigned numbers: admin management and per-user visibility', {timeout:2000
     const row=await db.use(s=>s.get('SELECT * FROM assigned_numbers WHERE ID=1'));
     assert.deepEqual(row,{ID:1,phone_number:923009999999,user_name:'alicia'});
   }finally{await db.close();}
+
+  // Assigning the main campaign carries the user's existing numbers into it.
+  const campaign=(Cookie,method,path,body)=>fetch(base+path,{method,headers:{Cookie,'Content-Type':'application/json','X-Campaign-Phone':'15550001111'},body:body&&JSON.stringify(body)});
+  assert.equal((await campaign(admin,'PUT','/campaign-grants/'+id('alice'),{labels:[]})).status,204);
+  assert.equal((await campaign(admin,'PUT','/campaign-grants/'+id('carol'),{labels:[]})).status,422);
+  const alicia=await login('alicia');
+  assert.equal((await campaign(alicia,'PUT','/campaign-grants/'+id('alice'),{labels:[]})).status,403);
+  assert.equal((await campaign(alicia,'POST','/campaign-contacts',{phoneNumber:1,username:'alicia'})).status,403);
+  const mine=(await json(await call(alicia,'GET','/assigned-numbers?username=bob'))).body.assignments;
+  // A regular user's requests share one cached WAHA identity lookup.
+  const before=identityLookups;
+  for(let i=0;i<20;i++)assert.equal((await call(alicia,'GET','/assigned-numbers')).status,200);
+  assert.ok(identityLookups-before<=1,'identity lookups: '+(identityLookups-before));
+  assert.deepEqual(mine.map(a=>a.phoneNumber).sort(),[15550000000,923009999999]);
+  assert.deepEqual((await json(await call(admin,'GET','/assigned-numbers'))).body.assignments,[]);
+  const contacts=(await json(await call(admin,'GET','/campaign-contacts'))).body;
+  assert.equal(contacts.phone,'15550001111');
+  assert.deepEqual(contacts.assignments.map(a=>[a.phoneNumber,a.username]).sort(),[[15550000000,'alicia'],[923009999999,'alicia']]);
 });

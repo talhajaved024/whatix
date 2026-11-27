@@ -6,6 +6,10 @@ const kinds=new Map([['text','sendText'],['document','sendFile'],['image','sendI
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const minBatchSize=10;
+// One person cannot flood the shared queue: a recipient ceiling per job and a
+// few unfinished jobs per person at a time.
+const MAX_RECIPIENTS=5000;
+const MAX_ACTIVE_JOBS=3;
 function nextBatchSize(){return randomInt(minBatchSize,15 + 1);}
 
 function normalize(input){
@@ -28,11 +32,10 @@ function normalize(input){
     const f=input.file;
     if(!f || typeof f.filename!=='string' || !f.filename.trim() || typeof f.mimetype!=='string' || !f.mimetype.trim())return;
     const file={filename:f.filename,mimetype:f.mimetype};
-    if(typeof f.data==='string' && f.data.length && f.url===undefined)file.data=f.data;
-    else if(typeof f.url==='string' && f.data===undefined){
-      try{const url=new URL(f.url);if(!['http:','https:'].includes(url.protocol) || url.username || url.password)return;}catch{return;}
-      file.url=f.url;
-    }else return;
+    // Media links are downloaded into `data` before this point (send-body.js);
+    // WAHA itself is never asked to fetch a URL.
+    if(typeof f.data==='string' && f.data.length && f.url===undefined && /^[A-Za-z0-9+/]*={0,2}$/.test(f.data))file.data=f.data;
+    else return;
     body={file};
     if(kind!=='voice')body.caption=text;
     if(kind==='video' || kind==='voice')body.convert=convert;
@@ -135,12 +138,15 @@ export async function broadcastQueue(store,{send,canSend}){
     const input=normalize(req.body);
     if(!input)return res.status(400).json({error:`Expected a UUID, more than ${minBatchSize} distinct direct recipients and a valid message`});
     const {id,recipients,kind,body}=input;
+    if(recipients.length>MAX_RECIPIENTS)return res.status(400).json({error:`A broadcast can reach at most ${MAX_RECIPIENTS} recipients. Split the list.`});
     const owner=req.userId;
     const payload=JSON.stringify(body);
     const digest=createHash('sha256').update(JSON.stringify([kind,recipients])).update(payload).digest('hex');
     const task=admission.then(async()=>{
       const existing=jobs.get(key(owner,id));
       if(existing)return existing.digest===digest ? existing : null;
+      const active=[...jobs.values()].filter(j=>j.owner===owner && j.results.length<j.recipients.length).length;
+      if(active>=MAX_ACTIVE_JOBS)return 'busy';
       const job={id,owner,recipients,kind,digest,createdAt:Date.now(),batchEnd:Math.min(recipients.length,nextBatchSize()),nextBatchAt:0,inFlight:false,results:[]};
       await store.put(payloadPath(job),payload);
       await commit(job);
@@ -151,6 +157,7 @@ export async function broadcastQueue(store,{send,canSend}){
     try{
       const job=await task;
       if(!job)return res.status(409).json({error:'Broadcast ID already used for a different request'});
+      if(job==='busy')return res.status(429).json({error:`You already have ${MAX_ACTIVE_JOBS} broadcasts in progress. Wait for one to finish.`});
       res.status(202).json(progress(jobs.get(key(owner,id))));
     }catch{res.status(503).json({error:'Could not store broadcast'});}
   });

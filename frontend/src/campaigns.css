@@ -1,0 +1,178 @@
+/* Campaign switcher, Assign WA Num and Assign Contacts. Uses the admin
+   palette (--a-*) from styles.css. */
+
+/* Campaign switcher in the chat sidebar */
+.inbox-switcher{display:grid;gap:6px;padding:0 0 16px}
+.audience>.inbox-switcher{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--a-line,#d2dbd1a8)}
+/* Add Number tab: a centred, picker-sized control above the WAHA dashboard, not a full-width bar. */
+.number-dashboard>.inbox-switcher{align-self:center;width:min(420px,calc(100% - 32px));margin:14px 0 0;padding-bottom:14px}
+/* It sits on the dark page background here, not a light panel, so the caption needs light text. */
+.number-dashboard>.inbox-switcher .inbox-caption{color:#cfe8dc}.number-dashboard>.inbox-switcher .inbox-caption small{color:#a9cbbc}
+.inbox-caption{display:flex;align-items:baseline;justify-content:space-between;padding:0 2px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#52675e}
+.inbox-caption small{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:#7b8f86}
+.inbox-current{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border:1px solid #16745629;border-radius:15px;
+ background:linear-gradient(135deg,#ffffff,#effaf3);box-shadow:inset 0 1px 0 #fff,0 6px 18px #16745614}
+.inbox-current>span:last-child{display:grid;gap:1px}
+.inbox-current small{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#52675e}
+.inbox-current strong{font-size:16px;font-variant-numeric:tabular-nums}
+.inbox-tile,.cp-tile{display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:11px;color:#fff;
+ background:linear-gradient(135deg,#25a079,#167456);box-shadow:0 6px 14px #16745640}
+.inbox-retry{justify-self:start;padding:4px 10px;font-size:12px;font-weight:600;color:#a13026;background:#fff1ef;border:1px solid #f3c2bb;border-radius:999px}
+
+/* Shared pieces */
+.cp-updated{color:#7b8f86}
+.cp-cta{display:inline-flex;align-items:center;gap:6px}
+.cp-muted{font-size:12.5px;color:#7b8f86}
+.cp-user{display:inline-flex;align-items:center;gap:10px;min-width:0}
+.initials{display:grid;flex:none;place-items:center;border-radius:11px;font-weight:700;letter-spacing:.3px;box-shadow:inset 0 0 0 1px #ffffff99,0 2px 6px #183a3414}
+.cp-empty-icon{display:grid;place-items:center;width:58px;height:58px;margin-bottom:4px;border-radius:18px;color:#167456;background:#d3f0de;box-shadow:0 10px 26px #16745626}
+
+/* Summary tiles: one slim row, so the users grid (the point of this tab) sits high. */
+.cp-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.cp-stat{display:flex;align-items:center;gap:11px;padding:9px 14px;border:1px solid #ffffffcc;border-radius:14px;
+ background:linear-gradient(135deg,#ffffffd9,#f4faf6b3);box-shadow:0 1px 0 #fff inset,0 4px 14px #183a340d}
+.cp-stat>div{display:flex;align-items:baseline;gap:8px;min-width:0}
+.cp-stat strong{flex:none;font-size:21px;line-height:1.1;font-weight:700;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:#123e36}
+.cp-stat strong span{font-size:14px;font-weight:600;color:#7b8f86}
+.cp-stat small{overflow:hidden;font-size:12.5px;font-weight:600;color:#52675e;text-overflow:ellipsis;white-space:nowrap}
+.cp-stat small em{font-style:normal;color:#a3651a}
+.cp-stat-icon{display:grid;flex:none;place-items:center;width:32px;height:32px;border-radius:10px;color:#167456;background:#d3f0de}
+.cp-stat.warn .cp-stat-icon{color:#8a5a0c;background:#fbeec7}.cp-stat.warn strong{color:#8a5a0c}
+.cp-stat.good .cp-stat-icon{color:#fff;background:linear-gradient(135deg,#25a079,#167456)}
+
+/* Campaign numbers: filter pills beside the search (scroll sideways when many). */
+.cp-numbers{display:flex;flex:1 1 auto;gap:8px;min-width:0;margin:0;padding:2px;overflow-x:auto;list-style:none;scrollbar-width:none}
+.cp-numbers::-webkit-scrollbar{display:none}
+.cp-numbers>li{flex:none}
+.cp-panel .cp-number.cp-number{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px 0 4px;font:inherit;font-size:13.5px;text-align:left;color:#183a34;cursor:pointer;
+ border:1px solid #d6e0d8;border-radius:999px;background:#ffffffc7;box-shadow:0 1px 0 #fff inset;transition:border-color .2s,box-shadow .2s,background .2s}
+.cp-number .cp-tile{width:28px;height:28px;border-radius:50%}
+.cp-number strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.cp-number-count{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;font-size:12px;font-weight:700;color:#145c48;border-radius:999px;background:#e3f4e9}
+.cp-panel .cp-number.cp-number:hover{background:#fff;border-color:#9fc2ae;box-shadow:0 4px 14px #1674561f}
+.cp-panel .cp-number.cp-number[aria-pressed=true]{color:#fff;border-color:transparent;background:linear-gradient(135deg,#25a079,#167456);box-shadow:0 4px 12px #16745640}
+.cp-number[aria-pressed=true] .cp-tile{color:#167456;background:#fff;box-shadow:none}
+.cp-number[aria-pressed=true] .cp-number-count{color:#fff;background:#ffffff33}
+.cp-panel .cp-number.cp-number:focus-visible{outline:none;box-shadow:0 0 0 4px #a8e9bd}
+.cp-number-main{display:grid;flex:1;gap:1px;min-width:0}
+.cp-number-main strong{font-size:15.5px;font-variant-numeric:tabular-nums}
+.cp-number-main small{overflow:hidden;font-size:12px;color:#6a7f75;text-overflow:ellipsis;white-space:nowrap}
+
+/* Toolbar */
+.cp-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.cp-search{display:flex;flex:0 1 260px;align-items:center;gap:8px;min-width:180px;height:36px;box-sizing:border-box;padding:0 12px;color:#6a7f75;border:1px solid #cdd8cfcc;border-radius:999px;
+ background:#ffffffc7;transition:border-color .2s,box-shadow .2s,background .2s}
+.cp-search:focus-within{color:#167456;background:#fff;border-color:#167456;box-shadow:0 0 0 4px #a8e9bd80}
+.cp-search input.cp-search-input,.cp-search input[type=search]{flex:1;min-width:0;padding:8px 0;font:inherit;font-size:14px;color:#183a34;border:0;outline:none;background:transparent;box-shadow:none}
+.cp-panel .cp-filter.cp-filter{display:inline-flex;align-items:center;gap:6px;padding:6px 8px 6px 11px;font:inherit;font-size:13px;font-weight:700;color:#fff;cursor:pointer;
+ border:0;border-radius:999px;background:linear-gradient(135deg,#25a079,#167456);box-shadow:0 4px 12px #16745640}
+.cp-count{flex:none;margin-left:auto;font-size:12.5px;font-weight:600;color:#6a7f75}
+.cp-toolbar{flex-wrap:nowrap}
+.cp-panel{gap:14px}
+.an-toolbar .dd{flex:0 1 auto}
+/* Assign Contacts: a label in front of each filter, like the Whatix AI dates. Wraps rather than overflowing on narrow laptops. */
+.cp-toolbar.an-toolbar{flex-wrap:wrap}
+.an-field{display:inline-flex;flex:0 1 auto;align-items:center;gap:8px;min-width:0;font-size:13px;font-weight:600;color:#2f4a40;white-space:nowrap}
+.an-field>.dd{min-width:0}
+/* Assign WA Num: the number pills take the rest of the row after their label and scroll sideways if there are many. */
+.cp-numbers-field{flex:1 1 auto}.cp-numbers-field>.cp-numbers{flex:1 1 auto}
+
+/* Tables */
+.cp-table td{vertical-align:middle}
+.cp-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.cp-chip{display:grid;gap:4px;min-width:0;max-width:380px;padding:7px 11px;border:1px solid #16745624;border-radius:13px;
+ background:linear-gradient(135deg,#f3fbf6,#e8f6ee);box-shadow:inset 0 1px 0 #fff}
+.cp-chip.cp-chip-none{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;font-size:13px;font-weight:600;color:#8a5a0c;
+ border:1px dashed #e5c77e;background:#fdf8ea}
+.cp-chip-top{display:flex;align-items:center;gap:6px;color:#167456}
+.cp-chip-top strong{font-size:14px;color:#123e36;font-variant-numeric:tabular-nums}
+.cp-chip-top small{overflow:hidden;font-size:11.5px;color:#6a7f75;text-overflow:ellipsis;white-space:nowrap}
+.cp-chip-labels{display:flex;flex-wrap:wrap;gap:5px}
+.cp-label{display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 6px;font-size:12px;font-weight:600;color:#2f4a40;border-radius:999px;background:#ffffffd9;box-shadow:0 0 0 1px #183a3412}
+.cp-label i{width:8px;height:8px;border-radius:50%;background:#b5c4bc}
+.cp-label.missing{color:#a13026;background:#fff1ef}
+.cp-chip-meta{font-size:11.5px;color:#6a7f75;white-space:nowrap}
+.cp-chip-foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.an-phone{font-size:13.5px}
+.an-when strong{font-size:13.5px;font-weight:600}
+
+/* Editor dialog */
+.idle-dialog.cp-dialog{width:min(640px,calc(100% - 24px));max-height:min(90dvh,820px);padding:0;overflow:hidden;text-align:left}
+.cp-dialog form{display:flex;flex-direction:column;gap:16px;max-height:inherit;padding:24px 24px 20px;overflow:auto;box-sizing:border-box}
+.cp-dialog-head{display:flex;align-items:center;gap:14px}
+.cp-dialog-head h2{margin:0;font-size:21px;letter-spacing:-.3px}
+.cp-dialog-head p{margin:2px 0 0;font-size:13px;color:#6a7f75}
+.cp-tile.big{width:44px;height:44px;border-radius:13px}
+.cp-options{display:grid;gap:10px;min-width:0;margin:0;padding:0;border:0}
+.cp-options legend{margin-bottom:8px;padding:0;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#52675e}
+.cp-option{display:grid;gap:10px;padding:12px;border:1px solid #d6e0d8;border-radius:16px;background:#ffffffb8;transition:border-color .2s,box-shadow .2s,background .2s}
+.cp-option.on{border-color:#16745666;background:linear-gradient(180deg,#ffffff,#f1faf4);box-shadow:0 8px 22px #1674561a}
+.cp-option.unavailable{opacity:.6}
+.cp-option-head{display:flex;align-items:center;gap:12px;cursor:pointer}
+.cp-option:not(.on) .cp-tile{color:#167456;background:#e3f4e9;box-shadow:none}
+.um-switch.cp-switch input:checked+span{background:linear-gradient(135deg,#25a079,#167456)}
+.cp-option-body{display:grid;gap:8px;padding:10px 0 0 50px;border-top:1px dashed #d6e0d8}
+.cp-option-caption{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;font-weight:700;color:#2f4a40}
+.cp-option-caption>span{display:inline-flex;align-items:center;gap:6px}
+.cp-dialog .cp-link.cp-link{padding:2px 4px;font:inherit;font-size:12.5px;font-weight:700;color:#167456;background:none;border:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.cp-label-grid{display:flex;flex-wrap:wrap;gap:7px}
+.cp-label-pick{position:relative;display:inline-flex;align-items:center;gap:7px;padding:6px 10px 6px 9px;font-size:13px;font-weight:600;color:#2f4a40;cursor:pointer;
+ border:1px solid #d6e0d8;border-radius:999px;background:#fff;transition:border-color .15s,background .15s,box-shadow .15s}
+.cp-label-pick input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.cp-label-pick i{width:10px;height:10px;border-radius:50%;background:#b5c4bc;box-shadow:0 0 0 2px #fff,0 0 0 3px #183a341a}
+.cp-label-pick svg{display:none;color:#167456}
+.cp-label-pick:hover{border-color:#9fc2ae}
+.cp-label-pick:has(input:checked){color:#0f4a38;border-color:#167456;background:#e3f4e9;box-shadow:0 2px 8px #1674561f}
+.cp-label-pick:has(input:checked) svg{display:block}
+.cp-label-pick:has(input:focus-visible){box-shadow:0 0 0 3px #a8e9bd}
+.cp-label-pick.missing{color:#a13026;border-color:#f3c2bb;background:#fff1ef}.cp-label-pick.missing svg{display:block;color:#a13026}
+.cp-note{display:flex;align-items:flex-start;gap:8px;margin:0;padding:10px 12px;font-size:13px;color:#2f4a40;border-radius:12px;background:#eef6f1}
+.cp-note svg{flex:none;margin-top:1px;color:#167456}
+.cp-dialog .idle-error{margin:0}
+.cp-dialog .idle-actions{position:sticky;bottom:-20px;margin:0 -24px -20px;padding:14px 24px 20px;background:linear-gradient(180deg,#ffffff00,#fbfdfb 35%)}
+
+/* Loading placeholder */
+.cp-skeleton{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.cp-skeleton i,.cp-skeleton b{height:70px;border-radius:16px;background:linear-gradient(90deg,#ffffff80,#ffffffd9,#ffffff80);background-size:200% 100%;animation:cp-shimmer 1.3s ease-in-out infinite}
+.cp-skeleton b{grid-column:1/-1;height:58px}
+@keyframes cp-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+
+/* The admin panel is a fixed-height flex column; these blocks keep their size and the panel scrolls instead. */
+.cp-panel>:is(.cp-stats,.cp-numbers,.cp-toolbar,.admin-msg),.cp-toolbar.an-toolbar{flex:none}
+.cp-chip-top strong{white-space:nowrap}
+@media(max-width:900px){
+ .cp-stats{grid-template-columns:repeat(3,minmax(150px,1fr));overflow-x:auto}
+ /* Card layout: campaign chips and the assignment date get the full card width. */
+ .cp-table td[data-label="Campaign numbers"]{grid-column:1/-1}
+ .cp-table th[data-label="User"]{grid-column:1/-1}
+}
+@media(max-width:680px){
+ .cp-stats{display:flex;gap:8px;margin:0 -12px;padding:0 12px 2px;overflow-x:auto;scrollbar-width:none}
+ .cp-stat{flex:0 0 auto;padding:8px 12px}.cp-stat strong{font-size:19px}
+ .cp-toolbar{flex-wrap:wrap}
+ .cp-numbers{flex:1 1 100%;order:2}
+ .cp-numbers-field{order:2}
+ .cp-count{order:3}
+ .cp-search{flex:1 1 100%}
+ .cp-count{margin-left:0}
+ .an-toolbar .dd{flex:1 1 100%}
+ .an-field{flex:1 1 100%}.an-field>.dd{flex:1}
+ .cp-chip{max-width:none}
+ .cp-option-body{padding-left:0}
+ .cp-dialog form{padding:20px 16px 16px}
+ .cp-dialog .idle-actions{margin:0 -16px -16px;padding:12px 16px 16px}
+}
+@media(prefers-reduced-motion:reduce){.cp-skeleton i,.cp-skeleton b{animation:none}.cp-panel .cp-number.cp-number{transition:none}}
+:root[data-perf=lite] :is(.cp-skeleton i,.cp-skeleton b){animation:none}
+@media(forced-colors:active){.cp-panel .cp-number.cp-number[aria-pressed=true],.cp-option.on,.cp-label-pick:has(input:checked){outline:2px solid Highlight}}
+
+/* Label scope per number: every label, or only chosen ones */
+.cp-scope{display:inline-flex;padding:3px;border-radius:999px;background:#e9f1ec;box-shadow:inset 0 1px 2px #183a3414}
+.cp-dialog .cp-scope button.cp-scope-btn,.cp-dialog .cp-scope button{padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#52675e;cursor:pointer;
+ border:0;border-radius:999px;background:none;transition:background .2s,color .2s,box-shadow .2s}
+.cp-dialog .cp-scope button[aria-checked=true]{color:#0f4a38;background:#fff;box-shadow:0 2px 8px #1674561f}
+.cp-dialog .cp-scope button:focus-visible{outline:none;box-shadow:0 0 0 3px #a8e9bd}
+.cp-scope-note{display:block}
+.cp-dialog .cp-select-all{justify-self:start}
+.cp-label.all{gap:4px;color:#0f4a38;background:#d3f0de;box-shadow:0 0 0 1px #16745626}
+@media(max-width:680px){.cp-option-caption{flex-wrap:wrap}}

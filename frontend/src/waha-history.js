@@ -7,13 +7,14 @@ import { SESSION } from "./sender.js";
 import { isGroupChat, quotedMessageId } from "./conversations.js";
 import { receipt } from "./receipts.js";
 
-const base = "/api/" + SESSION + "/chats";
+// Read at call time: the open inbox can change without a page reload.
+const base = () => "/api/" + encodeURIComponent(SESSION) + "/chats";
 const limit = 50;
 const direct = /^\d+@(?:c\.us|lid|s\.whatsapp\.net)$/;
 
-async function page(path, offset, signal) {
+async function page(path, offset, signal, size = limit) {
   const messages = path.endsWith("/messages");
-  const url = base + path + "?limit=" + limit + "&offset=" + offset + "&downloadMedia=";
+  const url = base() + path + "?limit=" + size + "&offset=" + offset + "&downloadMedia=";
   let response = await authorizedFetch(url + messages, {signal});
   if ([502,503,504].includes(response.status)) {
     await response.body?.cancel();
@@ -63,8 +64,22 @@ export function pageTimestamps(rows) {
   });
 }
 
+// WhatsApp keeps housekeeping rows in the message list: the "messages are
+// end-to-end encrypted" / "security code changed" notices, system templates,
+// group events, protocol rows and reaction rows. The phone shows them as small
+// notices or not at all; they were never sent or received, so they are not
+// shown as message bubbles here (reactions appear on the message they react to).
+const systemRows = new Set(["e2e_notification","notification_template","notification","gp2","protocol",
+  "broadcast_notification","pinned_message","keep_in_chat","reaction","debug","newsletter_notification"]);
+const rowType = msg => msg?._data?.type || msg?.type || "";
+export const isSystemRow = msg => systemRows.has(rowType(msg));
+// What to show for a row with no text and no loaded media, by WhatsApp type.
+const placeholders = {image:"Photo",video:"Video",sticker:"Sticker",document:"Document",ptt:"Voice message",audio:"Audio",
+  location:"Location",vcard:"Contact card",multi_vcard:"Contact cards",revoked:"This message was deleted",
+  ciphertext:"Waiting for this message",call_log:"Call",poll_creation:"Poll"};
+
 export function historicalMessage(chatId, msg, fallback = null) {
-  if ((!direct.test(chatId) && !isGroupChat(chatId)) || !msg) return null;
+  if ((!direct.test(chatId) && !isGroupChat(chatId)) || !msg || isSystemRow(msg)) return null;
   const {id,ack} = receipt(msg);
   if (!id) return null;
   const number = chatId.replace(/@(?:c\.us|s\.whatsapp\.net)$/, "");
@@ -75,7 +90,7 @@ export function historicalMessage(chatId, msg, fallback = null) {
   const item = { id:(msg.fromMe ? "remote:" : "incoming:") + id, remote:true,
     ...(isGroupChat(chatId) ? {mentions:mentionedIds(msg)} : {}),
     reactions:Array.isArray(msg._data?.reactions) ? msg._data.reactions.map(r => ({actor:r.key?.fromMe ? "self" : "peer",text:r.text,at:Number(r.senderTimestampMs)||0})) : [],
-    text:media.kind==="voice" ? "" : msg.body || (msg.hasMedia ? "" : "Message"), ...media, timestamp,
+    text:media.kind==="voice" ? "" : msg.body || (msg.hasMedia ? "" : placeholders[rowType(msg)] || "Message"), ...media, timestamp,
     time:new Date(timestamp).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) };
   if (!msg.fromMe) return {...item,sender:chatId,...(isGroupChat(chatId) ? messageAuthor(msg) : {}),alreadyRead:ack >= 3,quotedId:quotedMessageId(msg)};
   return {...item,chatId,recipients:[number],total:1,results:[{number,id,ack,ok:true}]};
@@ -104,6 +119,9 @@ export function mergeHistory(local, remote) {
 export function useWahaHistory(selectedId, contacts, includeGroups) {
   const [messages,setMessages] = useState(new Map());
   const [directory,setDirectory] = useState(new Map());
+  // When each chat was last active, including system notices, so a chat whose
+  // latest row is a notice keeps its place in the list.
+  const [activity,setActivity] = useState(new Map());
   const chatId = directory.has(selectedId) ? selectedId : [...directory.keys()].find(id =>
     contacts.has(id) && contacts.get(id)+"@c.us" === selectedId) || selectedId;
   const [overviewError,setOverviewError] = useState("");
@@ -121,15 +139,36 @@ export function useWahaHistory(selectedId, contacts, includeGroups) {
   useEffect(() => {
     const controller = new AbortController();
     setOverviewError("");
+    // Chats whose latest row is a system notice: look back for their newest
+    // real message. One with none is notice-only, which the phone does not list.
+    async function lookBack(chats) {
+      const queue = [...chats];
+      const worker = async () => {
+        for (let c; (c = queue.shift());) {
+          try {
+            const rows = await page("/"+encodeURIComponent(c.id)+"/messages",0,controller.signal,10);
+            const times = pageTimestamps(rows);
+            const real = rows.map((msg,index)=>historicalMessage(c.id,msg,times[index])).filter(Boolean);
+            if (real.length) append(real);
+            else setDirectory(previous => { const next = new Map(previous); next.delete(c.id); return next; });
+          } catch (err) { if (controller.signal.aborted) throw err; /* keep the chat; it is ordered by activity */ }
+        }
+      };
+      await Promise.all([worker(),worker(),worker()]);
+    }
     async function load() {
+      const noticesLast = [];
       for (let offset=0;;offset+=limit) {
         const chats = await page("/overview",offset,controller.signal);
         const visibleChats = chats.filter(chat=>direct.test(chat.id) || (includeGroups && isGroupChat(chat.id)));
         setDirectory(previous => new Map([...previous,...visibleChats.map(c=>[c.id,c.name || c._chat?.name || c.id])]));
+        setActivity(previous => new Map([...previous,...visibleChats.map(c=>[c.id,(Number(c._chat?.t) || Number(c.lastMessage?.timestamp) || 0)*1000])]));
         // The chat's own time (_chat.t) stands in if its last message has none.
         append(visibleChats.map(c=>historicalMessage(c.id,c.lastMessage,Number(c._chat?.t)*1000)));
+        noticesLast.push(...visibleChats.filter(c=>isSystemRow(c.lastMessage)));
         if (chats.length < limit) break;
       }
+      await lookBack(noticesLast);
     }
     load().catch(err=>{if (!controller.signal.aborted) setOverviewError(err.message);});
     return () => controller.abort();
@@ -147,6 +186,6 @@ export function useWahaHistory(selectedId, contacts, includeGroups) {
     }).catch(err=>{if (!controller.signal.aborted) setMessageError(err.message);});
     return () => controller.abort();
   },[chatId,request,retry]);
-  return {messages,directory,error:overviewError || messageError,retry:()=>setRetry(n=>n+1),
+  return {messages,directory,activity,error:overviewError || messageError,retry:()=>setRetry(n=>n+1),
     older:more?.chatId === chatId && more ? ()=>setRequest(more) : null};
 }

@@ -13,7 +13,24 @@ const icons = {
   back: "M15 5l-7 7 7 7",
   bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0",
   users: "M16 20v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M14 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M17 4a4 4 0 0 1 0 7 M20 20v-2a4 4 0 0 0-3-4",
+  chevron: "m6 9 6 6 6-6",
+  check: "m5 12.5 4.5 4.5L19 7.5",
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4",
+  phone: "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z M11 18.5h2",
+  tag: "M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z M7.5 7.5h.01",
+  userPlus: "M14 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M19 8v6 M16 11h6",
+  clipboard: "M9 3h6v3H9z M7 4.5H5v17h14v-17h-2 M8.5 12h7 M8.5 16h5",
+  plus: "M12 5v14 M5 12h14",
+  grid: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z",
+  campaign: "M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z M15 9a4 4 0 0 1 0 6 M18 6a8 8 0 0 1 0 12",
+  contacts: "M4 4h13a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4Z M21 8v2 M21 14v2 M11.5 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z M8 16a3.5 3.5 0 0 1 7 0",
+  edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z M13.5 6.5l4 4",
+  trash: "M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3",
+  eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  logout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3 M10 17l5-5-5-5 M15 12H3",
+  refresh: "M20 11A8 8 0 0 0 5.3 6.7 M4 3v4h4 M4 13a8 8 0 0 0 14.7 4.3 M20 21v-4h-4",
+  sliders: "M4 7h9 M17 7h3 M4 17h3 M11 17h9 M15 5v4 M9 15v4",
 };
-export default function Icon({name}) {
-  return <svg aria-hidden="true" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={icons[name]} /></svg>;
+export default function Icon({name,size=21}) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={icons[name]} /></svg>;
 }

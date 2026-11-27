@@ -116,7 +116,10 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 .message-placeholder{font-style:italic;color:#51675e}
 .message-dialog label{display:grid;gap:4px;text-align:left;margin-top:14px}
 .message-dialog .idle-actions{flex-wrap:wrap}
-.label-picker-actions,.label-choices{display:flex;flex-wrap:wrap;gap:8px}
+.label-choices{display:flex;flex-wrap:wrap;gap:8px}
+.label-picker-row{display:flex;align-items:center;gap:6px;min-width:0}.label-picker-row>.dd{flex:1}
+.label-tool{display:grid;flex:none;place-items:center;width:40px;height:40px;padding:0;border-radius:11px;color:#167456;border:1px solid #16745633;background:#ffffffb3}
+.label-tool:disabled{opacity:.55;cursor:not-allowed}
 .label-manager{width:min(480px,calc(100% - 24px));max-height:85dvh;overflow:auto;text-align:left}
 .label-manager h2,.label-manager>p{margin-bottom:14px}
 .label-manager .label-fields{display:grid;gap:12px;padding:0;background:transparent;border:0}
@@ -132,8 +135,8 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 .label-review li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:4px 0;overflow-wrap:anywhere}
 .label-review small{width:100%}
 .receipt{color:#53615b}.receipt.read{color:#176cbc}.receipt svg{vertical-align:middle;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.history-picker{margin-top:16px;display:grid;gap:6px}.history-picker label{font-weight:600}.history-picker select{width:100%;min-width:0}.archive-footer{padding:12px}.archive-footer button{padding:8px 12px;background:#def0e4}
-.chat-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.history-picker{margin-bottom:12px;display:grid;gap:6px}.history-picker>small{font-size:12px;line-height:1.4}.history-picker label{font-weight:600}.history-picker select{width:100%;min-width:0}.archive-footer{padding:12px}.archive-footer button{padding:8px 12px;background:#def0e4}
+.chat-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .chat-list-heading button{background:#ddf1e4;padding:6px 10px;font-size:13px;font-weight:600}
 .recipient-entry{padding-bottom:12px}.recipient-entry label{font-weight:600}.recipient-entry p{margin:5px 0 8px}
 .chat-list{display:grid;gap:4px}.chat-row{width:100%;min-width:0;text-align:left;justify-content:flex-start;padding:10px 8px;gap:10px}
@@ -241,6 +244,8 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 .auth-peek{flex:none;width:32px;height:32px;margin-right:5px;border-radius:9px;color:var(--g-dim)}.auth-peek:hover{background:#ffffff1a;color:var(--g-ink)}.auth-peek[aria-pressed=true]{color:var(--g-mint)}
 .auth-caps{margin-top:-8px;font-size:12px;color:#ffe08a}
 .auth-error{font-size:13px;line-height:1.45;color:var(--g-err);background:var(--g-err-bg);border:1px solid #ff8a7a40;padding:10px 12px;border-radius:10px;animation:auth-in .25s ease both}
+/* Good news on the sign-in card ("Password changed…"): mint, not the error red, and no shake. */
+.auth-notice{font-size:13px;line-height:1.45;color:#c9f5d8;background:#a8e9bd1f;border:1px solid #a8e9bd59;padding:10px 12px;border-radius:10px;animation:auth-in .25s ease both}
 /* Sign-in pill (SubmitButton in Login.jsx), bottom right under the password field.
    --tx/--ty lean it toward the mouse; --gx/--gy place the light that follows it. */
 .auth-submit{
@@ -278,6 +283,12 @@ form{border-top:1px solid #d7e0d6;padding:12px 15px;background:#f7f9f5}
 @keyframes auth-nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
 .auth-spin{width:15px;height:15px;border-radius:50%;border:2px solid #a8e9bd40;border-top-color:var(--g-mint);animation:auth-rot .7s linear infinite}@keyframes auth-rot{to{transform:rotate(360deg)}}
 .auth-foot{text-align:center;font-size:12px;letter-spacing:.3px;color:#cfe6da99}
+/* First sign-in password screen (PasswordSetup.jsx): the sign-in card with a heading and a quiet way out. */
+.pw-setup .auth-brand{margin:0 0 4px}
+.pw-setup-title{margin:0;text-align:center;font-size:22px;letter-spacing:-.4px;color:#f3fbf5}
+.pw-setup-text{margin:-6px 0 6px;text-align:center;font-size:14px;line-height:1.5;color:#cfe6da}
+.pw-setup-signout{align-self:center;padding:4px 10px;font:inherit;font-size:13px;font-weight:600;color:#cfe6da;background:none;border:0;border-radius:8px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.pw-setup-signout:hover:not(:disabled){color:#fff}.pw-setup-signout:disabled{opacity:.5;cursor:default}
 .auth-card :focus-visible{outline:2px solid var(--g-mint);outline-offset:2px}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.auth-card{background:#173f37f2}}
 @media(max-width:480px){.auth-card{padding:32px 20px 22px;border-radius:18px}.auth-orbs i{filter:blur(48px)}}
@@ -348,7 +359,18 @@ main:not(.auth-screen) .clip[aria-expanded=true]{background:#e0f1e6}
 .photo-viewer::backdrop{background:#0a1614b3;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .photo-viewer[open]{animation:app-in .3s cubic-bezier(.2,.9,.3,1.1) both}
 .photo-thumb img{transition:transform .3s}.photo-thumb:hover img{transform:scale(1.03)}
-main:not(.auth-screen) ::-webkit-scrollbar{width:10px;height:10px}main:not(.auth-screen) ::-webkit-scrollbar-thumb{background:#16745633;border-radius:10px;border:3px solid transparent;background-clip:content-box}main:not(.auth-screen) ::-webkit-scrollbar-thumb:hover{background-color:#16745666}main:not(.auth-screen) ::-webkit-scrollbar-track{background:transparent}
+/* Scrollbars: slim mint pills on every scrolling area (page, panels, grids,
+   lists, dialogs). Chrome/Edge/Safari use the ::-webkit-scrollbar parts;
+   Firefox gets the same colours through the standard properties below. */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent;border-radius:999px}
+::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:999px;background:linear-gradient(180deg,#3aa57e,#1f8a66) padding-box;opacity:.7;box-shadow:inset 0 1px 0 #ffffff40}
+::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#2c9a72,#167456) padding-box}
+::-webkit-scrollbar-thumb:active{background:#145c48 padding-box}
+::-webkit-scrollbar-thumb:horizontal{background:linear-gradient(90deg,#3aa57e,#1f8a66) padding-box}
+::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-button{display:none;width:0;height:0}
+@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:#2c9a72 transparent}}
 .app-alert{position:fixed;z-index:10;top:84px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);padding:10px 16px;border-radius:12px;font-size:13px;color:#a13026;background:#fff1efe6;border:1px solid #f3c2bb;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:0 10px 30px #04120f33}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){main:not(.auth-screen){background:#f7faf7f5}.mast{background:var(--a-mast)}}
 @media(max-width:680px){main:not(.auth-screen){border:0;border-radius:0;animation:none}.mast code{padding:3px 8px}}
@@ -395,7 +417,12 @@ main[hidden]{display:none !important}
 .admin-msg.error{color:#a13026;background:#fff1efe6;border-color:#f3c2bb}
 .admin-table-wrap{overflow-x:auto;margin:0 -4px;padding:0 4px}
 .admin-table{width:100%;min-width:560px;border-collapse:separate;border-spacing:0 8px;font-size:14px}
-.admin-table thead th{padding:4px 16px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#52675e}
+.admin-table thead th{padding:11px 16px;text-align:left;font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap;
+  position:relative;color:#145c48;background:linear-gradient(180deg,#e6f7ec,#cfeedd);border-top:1px solid #ffffffe6;border-bottom:1px solid #9fd8b9;box-shadow:inset 0 -1px 0 #ffffff66}
+.admin-table thead th:first-child{border-radius:14px 0 0 14px;border-left:1px solid #ffffffe6;padding-left:18px}
+.admin-table thead th:last-child{border-radius:0 14px 14px 0;border-right:1px solid #b9e4cb}
+/* A small accent bar opens the band, echoing the selected tab. */
+.admin-table thead th:first-child::before{content:"";position:absolute;left:8px;top:50%;width:3px;height:14px;margin-top:-7px;border-radius:3px;background:linear-gradient(180deg,#3aa57e,#167456)}
 .admin-table tbody th,.admin-table td{padding:12px 16px;text-align:left;font-weight:400;background:#ffffffb8;border-top:1px solid #ffffffcc;border-bottom:1px solid #d2dbd166;font-variant-numeric:tabular-nums;transition:background .2s}
 .admin-table tbody th{border-radius:14px 0 0 14px;border-left:1px solid #ffffffcc;font-weight:600}
 .admin-table td:last-child{border-radius:0 14px 14px 0;text-align:right;border-right:1px solid #d2dbd166}
@@ -406,6 +433,21 @@ main[hidden]{display:none !important}
 .admin-end{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;color:#a13026;border:1px solid #f3c2bb;background:#fff5f3;transition:background .2s,transform .15s,box-shadow .2s}
 .admin-end:not(:disabled):hover{background:#ffe3de;transform:translateY(-1px);box-shadow:0 6px 16px #a1302622}
 .admin-end:disabled{opacity:.55;cursor:default}
+/* Icon-only row actions (edit, assign, delete, end session): names come from aria-label and a tooltip. */
+.row-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:nowrap;white-space:nowrap}
+.admin-table td[data-label="Actions"]{width:1%;white-space:nowrap}   /* the column fits its icons, all on one line */
+.req-received{display:inline-flex;flex-direction:column;gap:2px;line-height:1.2}.req-received small{font-size:12px;color:#6a7f75}
+.req-assign-hint{font-size:13px;color:#52675e}.req-assign-warn{padding:8px 12px;border-radius:10px;font-size:13px;color:#7a4a0c;background:#fff6e5;border:1px solid #f3dcae}
+.row-icon{display:inline-grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border-radius:10px;color:#1d5c49;border:1px solid #cdd8cf;background:#ffffffe6;cursor:pointer;transition:background .2s,border-color .2s,transform .15s,box-shadow .2s}
+.row-icon:not(:disabled):hover{background:#e9f8ef;border-color:#8fd3ac;transform:translateY(-1px);box-shadow:0 6px 14px #183a341a}
+.row-icon:focus-visible{outline:3px solid #8ff0b5;outline-offset:2px}
+.row-icon.danger{color:#a13026;border-color:#f3c2bb;background:#fff5f3}
+.row-icon.danger:not(:disabled):hover{background:#ffe3de;border-color:#e9a79c;box-shadow:0 6px 14px #a1302622}
+.row-icon:disabled{opacity:.45;cursor:default}
+.req-dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto}.req-form{display:flex;flex-direction:column;gap:12px;width:100%;margin-top:10px}.req-form .um-field{display:flex;flex-direction:column;gap:6px}.req-form textarea{width:100%;min-height:96px;padding:10px 12px;font:inherit;font-weight:400;font-size:14px;color:#183a34;border:1px solid #cdd8cf;border-radius:10px;background:#ffffffe6;resize:vertical}.req-form textarea:focus{outline:none;border-color:#167456;box-shadow:0 0 0 4px #a8e9bd80}.req-form textarea[aria-invalid=true]{border-color:#d9776b}
+.req-add{display:inline-flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){.row-icon{transition:none}.row-icon:not(:disabled):hover{transform:none}}
+@media(max-width:680px){.admin-table td[data-label="Actions"]{grid-column:1/-1}.admin-table td[data-label="Actions"] .row-actions{justify-content:flex-start}.row-icon{width:40px;height:40px}}
 .admin-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;color:#42604d;padding:40px 16px}
 .admin-empty svg{color:#167456;animation:app-float 4s ease-in-out infinite}.admin-empty h2{font-size:18px}.admin-empty p{font-size:14px}
 .admin-spin{width:22px;height:22px;border-radius:50%;border:2px solid #16745633;border-top-color:#167456;animation:auth-rot .7s linear infinite}
@@ -416,7 +458,22 @@ main[hidden]{display:none !important}
 
 /* User management: registration form, directory badges, ban switch, end-session dialog. */
 .um-head-actions{display:flex;gap:8px;align-items:center}
-.requirements-filters{margin-left:auto;flex-wrap:wrap;align-items:flex-end;border:0;background:none;padding:0}
+.requirements-filters{margin-left:auto;flex-wrap:wrap;align-items:center;border:0;background:none;padding:0}
+/* Whatix AI: "From"/"To" sit in front of their date boxes, and the tab starts closer to the header. */
+.requirements-filters .um-field{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.requirements-filters .um-field input{flex:1;width:auto;padding:7px 10px}
+/* Every admin tab with a header (Users, Register user, Assign WA Num, Assign Contacts, Whatix AI) starts closer to it. */
+:is(#panel-offline-requirements,#panel-assigned,#panel-campaigns,#panel-register,#panel-users){gap:12px;padding-top:16px}
+:is(#panel-offline-requirements,#panel-assigned,#panel-campaigns,#panel-register,#panel-users)>.admin-head{align-items:center}
+#panel-offline-requirements>.admin-head h1{margin-bottom:0}
+@media(min-width:681px) and (max-height:800px){:is(#panel-offline-requirements,#panel-assigned,#panel-campaigns,#panel-register,#panel-users){gap:10px;padding-top:10px}}
+/* Register user and the profile editor (Users tab): each label in front of its box; the hint and any message sit under the box. Stacked again on phones. */
+:is(#panel-register,#panel-users) .um-field:has(>.um-label){grid-template-columns:110px minmax(0,1fr);align-items:center;column-gap:12px;row-gap:4px}
+:is(#panel-register,#panel-users) .um-field>.um-label{grid-column:1;grid-row:1}
+:is(#panel-register,#panel-users) .um-field:has(>.um-label)>:not(.um-label){grid-column:2}
+:is(#panel-register,#panel-users) .um-field>small{font-size:12px;font-weight:400}
+#panel-register .um-hint{color:#6a7f75}
+@media(max-width:680px){:is(#panel-register,#panel-users) .um-field:has(>.um-label){grid-template-columns:minmax(0,1fr)}:is(#panel-register,#panel-users) .um-field:has(>.um-label)>*{grid-column:1}:is(#panel-register,#panel-users) .um-field>.um-label{grid-row:auto}}
 .requirement-query{white-space:pre-wrap;overflow-wrap:anywhere}
 .requirement-phone{
   gap:7px;min-height:40px;padding:6px 13px;white-space:nowrap;font-weight:600;color:#104e3c;
@@ -454,6 +511,7 @@ main[hidden]{display:none !important}
 .um-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.2px;color:#174d3d;background:#d3f0de}
 .um-badge.super{color:#fff;background:linear-gradient(135deg,#1f8a66,#167456)}
 .um-badge.banned{margin-left:6px;color:#a13026;background:#ffe3de}
+.um-badge.pending{margin-left:6px;color:#7a4a0c;background:#fff1d6}
 .um-status{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:#6a7f75}
 .um-status::before{content:"";width:8px;height:8px;border-radius:50%;background:#b7c4bd}
 .um-status.on{color:#12573e;font-weight:600}.um-status.on::before{background:#2fbf7a;box-shadow:0 0 0 0 #2fbf7a80;animation:app-pulse 2.4s ease-out infinite}
@@ -543,6 +601,8 @@ main[hidden]{display:none !important}
 .user-pill-initials{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;font-size:12px;font-weight:700;letter-spacing:.04em;color:#e9fbf0;text-shadow:0 1px 1px #04120f80;
   background:radial-gradient(circle at 32% 28%,#2fa57a 0%,#167456 55%,#0e4d3a 100%);box-shadow:inset 0 -2px 3px #04120f59,inset 0 1px 1px #ffffff40,0 1px 2px #04120f40}
 .user-pill-name{overflow:hidden;text-overflow:ellipsis}
+button.user-pill{font-family:inherit;line-height:1;cursor:pointer}button.user-pill:focus-visible{outline:3px solid #8ff0b5;outline-offset:2px}
+.pw-form{display:flex;flex-direction:column;gap:12px;min-width:min(340px,80vw);margin-top:12px}.pw-form .um-field{display:flex;flex-direction:column;gap:6px}.pw-form .idle-actions{margin-top:4px}
 @media(max-width:680px){.user-pill{max-width:42px;height:32px;padding:3px}.user-pill-initials{width:26px;height:26px;font-size:11px}.user-pill-name{display:none}}
 @media(prefers-reduced-motion:reduce){.user-pill{transition:none}.user-pill:hover{transform:none}}
 /* Header: the tab bar stays in the exact centre. Equal side columns keep it
@@ -550,7 +610,9 @@ main[hidden]{display:none !important}
    steps (name ellipsis, initials only, then the session name) instead of
    pushing or overlapping the tabs. Narrow screens keep the flowing layout. */
 @media(min-width:1080px){
-  .mast{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:18px;padding:0 max(22px,calc((100vw - 1480px)/2))}
+  /* Same 22px edge at every width: the logo stays at the far left and the
+     bell, Log out and name at the far right, however wide the screen is. */
+  .mast{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:18px;padding:0 22px}
   .mast-tabs button{padding:7px 13px}
   .mast>.mast-end{gap:10px}
   .mast>.brand{grid-column:1;justify-self:start}
@@ -727,7 +789,8 @@ button.reaction-person:hover{background:#f0f2f5}
    Nothing can push the page itself into scrolling: only the lists and the thread scroll. */
 .auth-logout{white-space:nowrap}
 body{overflow-x:clip}
-@media(min-width:901px){.admin-table thead th{position:sticky;top:0;z-index:1;background:#e9f1ecf7}}
+/* Pinned while the grid scrolls. */
+@media(min-width:901px){.admin-table thead th{position:sticky;top:0;z-index:2}}
 @media(min-width:681px) and (max-width:1400px){
   main:not(.auth-screen),.admin-panel{max-width:none;margin:12px;height:calc(100dvh - 94px);min-height:0}
   main:not(.auth-screen){grid-template-columns:minmax(220px,min(29%,340px)) minmax(0,1fr)}
@@ -739,7 +802,7 @@ body{overflow-x:clip}
   .admin-panel>.um-form{margin-bottom:52px}
 }
 @media(min-width:681px) and (max-width:1079px){
-  .mast{gap:12px;padding:0 14px}
+  .mast{gap:12px;padding:0 22px}   /* same edge as wider screens */
   .mast>.brand,.mast>.mast-end{flex:none}
   .mast>.mast-end{gap:8px}
   .mast>.mast-tabs{flex:0 1 auto;scrollbar-width:none}
@@ -748,14 +811,31 @@ body{overflow-x:clip}
   .user-pill{max-width:42px;padding:3px}.user-pill-name{display:none}
 }
 @media(min-width:681px) and (max-width:959px){.mast code{display:none}}
+/* Narrow laptop widths (a 1280 or 1366 screen at 125% scaling is 1024-1093 px):
+   every tab stays visible without sideways scrolling. The session name is
+   already shown in the inbox switcher and the logo stays, so the header sheds
+   those first, then the tab icons, and only on the narrowest windows do the
+   inactive tabs show just their icon (with the name as a tooltip). */
+@media(min-width:681px) and (max-width:1079px){
+  .mast code{display:none}
+  .mast>.brand{gap:0;font-size:0}
+  .mast>.mast-tabs{gap:2px}
+  .mast>.mast-tabs button{padding:6px 9px;gap:5px}
+}
+@media(min-width:920px) and (max-width:1059px){.mast>.mast-tabs button svg{display:none}.mast>.mast-tabs button{padding:6px 10px}}
+@media(min-width:681px) and (max-width:919px){
+  .mast>.mast-tabs button[aria-selected=false] span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .mast>.mast-tabs button[aria-selected=false]{padding:6px 8px}
+}
 @media(min-width:681px) and (max-width:859px){.mast>.brand{gap:0;font-size:0}}
 @media(min-width:681px) and (max-height:800px){
   .mast{height:56px}.brand{font-size:22px}.logo{width:32px;height:32px}
   main:not(.auth-screen),.admin-panel{height:calc(100dvh - 76px);min-height:0;margin-block:10px}
   .audience{padding:14px}
   .chat-list-heading{margin-bottom:8px}
-  .history-picker{margin-top:8px;gap:4px}
+  .history-picker{margin-bottom:8px;gap:4px}
   .history-picker select{padding:7px 10px}
+  .audience>.inbox-switcher{padding-bottom:10px;margin-bottom:10px}
   .chat-row{padding:7px 8px}
   .block-avatar{width:38px;height:38px}
   .chat-head{padding:9px 16px}
@@ -793,3 +873,76 @@ body{overflow-x:clip}
 :root[data-perf=lite] :is(.bubble,.unread-count,.attachment,.popover,.admin-table tbody tr,.auth-orbs i,.mast code::before,.empty>svg,.admin-empty svg,.um-status.on::before){animation:none}
 
 .contact-label-highlight{border-radius:.32em;padding:.04em .28em;color:#11241b;box-shadow:inset 0 0 0 100vmax #ffffff57;box-decoration-break:clone;-webkit-box-decoration-break:clone}.row-copy .contact-label-highlight span{color:inherit;font-size:inherit}
+
+.number-dashboard {display:flex;flex-direction:column;min-height:0;flex:1}
+.number-dashboard iframe {width:100%;height:75dvh;flex:1 0 auto;border:0;background:white}
+/* Header tabs carry an icon; on narrow screens the active tab keeps its label. */
+.mast-tabs button{display:inline-flex;align-items:center;gap:7px}
+.mast-tabs button svg{flex:none;opacity:.8}
+.mast-tabs button[aria-selected=true] svg{opacity:1}
+/* Excel import: country code and what the workbook produced */
+.label-country{display:flex;align-items:center;gap:6px;max-width:140px;padding:0 10px;border:1px solid #cdd8cfcc;border-radius:10px;background:#ffffffd9;font-weight:700;color:#52675e}
+.label-manager .label-country input{min-width:0;width:100%;padding:8px 0;border:0;background:transparent;box-shadow:none;font:inherit;font-weight:600;color:#183a34;outline:none}
+.label-country:focus-within{border-color:#167456;box-shadow:0 0 0 4px #a8e9bd80;background:#fff}
+.label-import-summary{display:grid;gap:6px;padding:10px 12px;font-size:13px;border-radius:12px;background:#eef6f1;color:#2f4a40}
+.label-import-summary p{margin:0}.label-import-summary ul{display:grid;gap:3px;margin:0;padding-left:18px}
+.label-import-summary li.ok{color:#12573e}.label-import-summary li.warn{color:#8a5a0c}
+.label-import-summary button{justify-self:start}
+/* After the first inbox opens, switching inboxes does not replay the panel's entrance. */
+:root[data-inbox-opened] main:not(.auth-screen){animation:none}
+/* The floating team-chat button sits over the bottom-right corner. Where the
+   panel reaches that corner (up to 1400px wide; wider, the panel is centred),
+   the pager bar ends short of it, so Next stays clear while the bar keeps equal
+   insets on both sides. The grids also get room to scroll their last rows above it. */
+@media(min-width:681px) and (max-width:1400px){.admin-panel>.pager{margin-right:var(--pager-clear,40px)}}
+@media(min-width:681px) and (max-width:1400px) and (max-height:800px){.admin-panel>.pager{--pager-clear:50px}}
+@media(min-width:681px) and (max-width:1079px){.admin-table-wrap::after{content:"";display:block;height:52px}.admin-panel>.um-form{margin-bottom:52px}}
+/* Empty / waiting states of the chat area: a centred glass card. */
+.inbox-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;min-height:calc(100dvh - 140px);padding:24px 16px}
+.inbox-empty>.inbox-switcher{width:min(420px,100%)}
+.inbox-status{display:flex;flex-direction:column;align-items:center;gap:10px;width:min(460px,100%);padding:34px 30px;text-align:center;color:#183a34;
+  border:1px solid #ffffff8a;border-radius:22px;background:linear-gradient(180deg,#ffffffeb,#f1faf4e0);box-shadow:0 24px 60px #04120f59,inset 0 1px 0 #fff;
+  -webkit-backdrop-filter:blur(20px) saturate(150%);backdrop-filter:blur(20px) saturate(150%);animation:app-bubble .35s ease both}
+.inbox-status h2{margin:4px 0 0;font-size:22px;font-weight:700;color:#123e36}
+.inbox-status p{margin:0;max-width:36ch;font-size:15px;line-height:1.5;color:#3f5a50}
+.inbox-status-icon{display:grid;place-items:center;width:64px;height:64px;border-radius:20px;color:#fff;background:linear-gradient(135deg,#2c9a72,#167456);box-shadow:0 10px 24px #16745659}
+.inbox-status-icon.busy{animation:app-pulse 2.4s ease-out infinite}
+:root[data-perf=lite] .inbox-status{background:#f7fbf8;-webkit-backdrop-filter:none;backdrop-filter:none}
+@media(prefers-reduced-motion:reduce){.inbox-status,.inbox-status-icon.busy{animation:none}}
+/* "Signed in as another account in another tab" notice. */
+.app-alert.app-notice{display:flex;align-items:flex-start;gap:10px;color:#123e36;background:#eefaf2f2;border-color:#9fd8b9;max-width:min(620px,calc(100% - 32px))}
+.app-notice button{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:8px;color:#145c48;background:transparent;cursor:pointer}
+.app-notice button:hover{background:#d6f1e1}
+:root[data-perf=lite] .app-alert.app-notice{background:#eefaf2}
+/* Chat list (admins): who handles this customer in the open number. */
+.chat-list-entry>.row-assignee{position:absolute;right:6px;top:50%;margin-top:-15px;display:flex}
+.chat-list-entry:has(>.message-menu)>.row-assignee{right:40px}
+.chat-list-entry:has(>.row-assignee) .chat-row{padding-right:72px}
+.chat-list-entry:has(>.row-assignee):has(>.message-menu) .chat-row{padding-right:106px}
+.assignee-chip{display:inline-flex;align-items:center;gap:3px;height:30px;padding:0 6px 0 3px;font:inherit;color:#2c5a4a;cursor:pointer;
+ border:1px solid #cfe3d6;border-radius:999px;background:#ffffffe6;box-shadow:0 1px 2px #183a3414;transition:background .15s,border-color .15s,box-shadow .15s}
+.assignee-chip:hover,.assignee-chip[aria-expanded=true]{background:#e8f5ee;border-color:#9fc2ae}
+.assignee-chip:focus-visible{outline:none;box-shadow:0 0 0 3px #a8e9bd}
+.assignee-chip:disabled{cursor:default;opacity:.6}
+.assignee-chip .initials{border-radius:50%;font-size:9.5px!important}
+.assignee-more{font-size:11px;font-weight:700;color:#145c48}
+.assignee-menu{position:fixed;z-index:80;display:flex;flex-direction:column;overflow:hidden;color:#183a34;border:1px solid #d6e0d8;border-radius:14px;
+ background:#fff;box-shadow:0 18px 44px #04120f40,0 2px 6px #04120f1a;animation:app-bubble .14s ease both}
+.assignee-head{display:grid;gap:2px;padding:11px 14px 9px;border-bottom:1px solid #e4ece6}
+.assignee-head strong{font-size:13.5px}.assignee-head small{font-size:11.5px;color:#6a7f75}
+.assignee-options{display:grid;gap:2px;padding:6px;overflow-y:auto}
+.assignee-option{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;font:inherit;text-align:left;color:#183a34;cursor:pointer;border:0;border-radius:10px;background:transparent}
+.assignee-option:hover:not(:disabled),.assignee-option:focus-visible{outline:none;background:#eef7f1}
+.assignee-option.on{background:#e3f4e9}
+.assignee-option:disabled{cursor:default;opacity:.65}
+.assignee-option>svg{flex:none;color:#167456}
+.assignee-who{display:grid;flex:1;min-width:0}
+.assignee-who strong{overflow:hidden;font-size:13.5px;text-overflow:ellipsis;white-space:nowrap}
+.assignee-who small{overflow:hidden;font-size:11.5px;color:#6a7f75;text-overflow:ellipsis;white-space:nowrap}
+.assignee-state{flex:none;font-size:11.5px;font-weight:700;color:#167456}
+.assignee-empty{margin:4px 8px 8px;font-size:12.5px;color:#6a7f75}
+.assignee-error{margin:0;padding:8px 14px 10px;font-size:12.5px;color:#a13026;border-top:1px solid #f3c2bb;background:#fff1ef}
+@media(prefers-reduced-motion:reduce){.assignee-menu{animation:none}}
+.assignee-chip.none{border-style:dashed;color:#6a7f75;background:#ffffffb3}
+.assignee-chip.none:hover,.assignee-chip.none[aria-expanded=true]{color:#145c48;border-style:solid}
+.assignee-none{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#eef3f0}

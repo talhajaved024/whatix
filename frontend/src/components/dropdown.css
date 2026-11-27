@@ -1,0 +1,69 @@
+/* Dropdown: see Dropdown.jsx. Doubled classes outrank the app-wide
+   `main button:hover` and `main input` rules without !important. */
+.dd{position:relative;min-width:0}
+.dd .dd-trigger.dd-trigger{display:flex;align-items:center;gap:9px;width:100%;min-width:0;min-height:40px;padding:8px 10px 8px 12px;
+ font:inherit;font-size:14px;font-weight:500;line-height:1.25;text-align:left;color:#183a34;cursor:pointer;
+ background:linear-gradient(180deg,#ffffff,#f7faf7);border:1px solid #cdd8cfcc;border-radius:11px;
+ box-shadow:inset 0 1px 0 #fff,0 1px 2px #183a340d;transition:border-color .2s,box-shadow .2s,background .2s,transform .15s}
+.dd .dd-trigger.dd-trigger:not(:disabled):hover{border-color:#9fc2ae;background:#fff;box-shadow:inset 0 1px 0 #fff,0 4px 14px #1674561a}
+.dd .dd-trigger.dd-trigger:not(:disabled):active{transform:scale(.985)}
+.dd .dd-trigger.dd-trigger:focus-visible,.dd.open .dd-trigger.dd-trigger{outline:none;border-color:#167456;background:#fff;box-shadow:0 0 0 4px #a8e9bd80}
+.dd .dd-trigger.dd-trigger:disabled{cursor:not-allowed;opacity:.55}
+.dd-value{display:grid;flex:1;gap:1px;min-width:0}
+.dd-text,.dd-placeholder,.dd-value small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-placeholder{color:#7b8f86}
+.dd-value small{font-size:11.5px;font-weight:500;color:#6a7f75}
+.dd-icon{display:grid;flex:none;place-items:center;color:#167456}
+.dd-chevron{display:grid;flex:none;place-items:center;width:22px;height:22px;border-radius:7px;color:#52675e;background:#16745610;
+ transition:transform .25s cubic-bezier(.2,.9,.3,1.25),color .2s,background .2s}
+.dd.open .dd-chevron{transform:rotate(180deg);color:#fff;background:#167456}
+.dd-swatch{flex:none;width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 3px #183a341a}
+
+/* Toolbar filter */
+.dd-pill .dd-trigger.dd-trigger{min-height:36px;padding:6px 7px 6px 13px;border-radius:999px;font-size:13px;font-weight:600;color:#174d3d;
+ background:#ffffffc7;border-color:#1674562e}
+.dd-pill .dd-chevron{border-radius:999px}
+/* Two-line control with an icon tile (campaign switcher) */
+.dd-rich .dd-trigger.dd-trigger{min-height:54px;padding:8px 10px 8px 8px;border-radius:15px;border-color:#16745629;
+ background:linear-gradient(135deg,#ffffff,#effaf3);box-shadow:inset 0 1px 0 #fff,0 6px 18px #16745614}
+.dd-rich .dd-icon{width:38px;height:38px;border-radius:11px;color:#fff;background:linear-gradient(135deg,#25a079,#167456);box-shadow:0 6px 14px #16745647}
+.dd-rich .dd-text{font-size:16px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+.dd-compact .dd-trigger.dd-trigger{min-height:34px;padding:5px 6px 5px 10px;font-size:13px;border-radius:9px}
+
+/* Menu */
+.dd-menu{position:fixed;inset:auto;z-index:60;display:flex;flex-direction:column;gap:4px;box-sizing:border-box;margin:0;padding:6px;
+ overflow:hidden;color:#183a34;text-align:left;background:#fbfdfbf5;border:1px solid #ffffffd9;border-radius:15px;
+ -webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);
+ box-shadow:0 22px 60px #04120f47,0 3px 10px #04120f1f,inset 0 1px 0 #fff}
+/* Author styles outrank the browser's [popover] rule, so a closed menu is hidden explicitly. */
+.dd-menu[popover]:not(:popover-open){display:none}
+.dd-menu:popover-open{animation:dd-in .18s cubic-bezier(.2,.9,.3,1.15) both;transform-origin:50% 0}
+.dd-menu.up:popover-open{animation-name:dd-in-up;transform-origin:50% 100%}
+@keyframes dd-in{from{opacity:0;transform:translateY(-6px) scale(.97)}}
+@keyframes dd-in-up{from{opacity:0;transform:translateY(6px) scale(.97)}}
+.dd-menu.inline{position:absolute;top:calc(100% + 6px);left:0;min-width:max(100%,220px);max-height:340px}
+.dd-menu.inline[hidden]{display:none}
+.dd-menu ul{flex:1;min-height:0;margin:0;padding:0;overflow:auto;list-style:none;outline:none;overscroll-behavior:contain}
+.dd-menu li[role=option]{display:flex;align-items:center;gap:10px;min-height:40px;padding:8px 8px 8px 10px;border-radius:10px;
+ font-size:14px;cursor:pointer;transition:background .12s}
+.dd-menu li[role=option].active{background:#e3f4e9}
+.dd-menu li[role=option].selected{font-weight:700;color:#0f4a38}
+.dd-menu li[role=option].selected.active{background:#d3f0de}
+.dd-menu li[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.dd-opt-text{display:grid;flex:1;gap:1px;min-width:0}
+.dd-opt-text>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-opt-text small{overflow:hidden;font-size:12px;font-weight:500;color:#6a7f75;text-overflow:ellipsis;white-space:nowrap}
+.dd-opt-icon{display:grid;flex:none;place-items:center;width:30px;height:30px;border-radius:9px;color:#167456;background:#e3f4e9}
+.dd-menu li.selected .dd-opt-icon{color:#fff;background:linear-gradient(135deg,#25a079,#167456)}
+.dd-check{display:grid;flex:none;place-items:center;width:18px;color:#167456}
+.dd-empty{padding:16px 10px;font-size:13px;text-align:center;color:#6a7f75}
+.dd-search{display:flex;flex:none;align-items:center;gap:8px;padding:0 10px;color:#6a7f75;background:#f2f7f3;border:1px solid #d6e0d8;border-radius:10px;
+ transition:border-color .2s,box-shadow .2s,background .2s}
+.dd-search:focus-within{color:#167456;background:#fff;border-color:#167456;box-shadow:0 0 0 3px #a8e9bd80}
+.dd-menu .dd-search .dd-search-input.dd-search-input,.dd-menu .dd-search .dd-search-input.dd-search-input:hover,.dd-menu .dd-search .dd-search-input.dd-search-input:focus{
+ flex:1;min-width:0;padding:8px 0;font:inherit;font-size:14px;color:#183a34;background:transparent;border:0;outline:none;box-shadow:none}
+
+@media(pointer:coarse){.dd-menu li[role=option]{min-height:46px}}
+@media(prefers-reduced-motion:reduce){.dd-menu:popover-open{animation:none}.dd-chevron,.dd .dd-trigger.dd-trigger{transition:none}}
+:root[data-perf=lite] .dd-menu{background:#fbfdfb;-webkit-backdrop-filter:none;backdrop-filter:none;animation:none}
+@media(forced-colors:active){.dd-menu{border:1px solid CanvasText}.dd-menu li[role=option].active{outline:2px solid Highlight}}

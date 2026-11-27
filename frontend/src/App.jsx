@@ -1,3 +1,5 @@
+import {inboxUrl,onInboxChange} from "./inbox.js";
+import {InboxSwitcher} from "./AddNumber.jsx";
 import DeleteChatDialog from "./components/DeleteChatDialog.jsx";
 import {LabelHighlights,ContactHighlight} from "./components/LabelHighlights.jsx";
 import DeleteLabelDialog from "./components/DeleteLabelDialog.jsx";
@@ -5,24 +7,28 @@ import {mentionParts,isSelfMention} from "./group-mentions.js";
 import ContactName from "./components/ContactName.jsx";
 import GroupDetails from "./components/GroupDetails.jsx";
 import {loadGroupMembers,messageAuthor,phoneId} from "./group-members.js";
-import { authorizedFetch, checkSession, sessionRevoked } from "./auth.js";
+import { authorizedFetch, checkSession, sessionRevoked, signedInElsewhere } from "./auth.js";
 import { receivedMedia } from "./media.js";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { broadcastTracker } from "./broadcasts.js";
 import AttachmentAlbum, {attachmentGroups} from "./components/AttachmentAlbum.jsx";
 import SessionPill from "./components/SessionPill.jsx";
-import NewChatDialog from "./components/NewChatDialog.jsx";
+// Loaded on demand: the phone-number rules behind "New chat" are about half of
+// the app's code, and only admins starting a chat need them.
+const NewChatDialog = lazyComponent(() => import("./components/NewChatDialog.jsx"));
 import BroadcastProgress from "./components/BroadcastProgress.jsx";
+import AccountMenu from "./components/AccountMenu.jsx";
+import { takePendingChat } from "./inbox.js";
 import { SESSION, markAttended, sendFile, sendImage, sendSeen, sendText, sendVideo, sendVoice, uploadSizeError } from "./sender.js";
 
 import { isGroupChat, conversationKey, groupConversations } from "./conversations.js";
 import { mergeHistory, useWahaHistory } from "./waha-history.js";
-import { businessLabels, labelRecipients } from "./business-labels.js";
+import { businessLabels, labelAudience, labelColor, labelRecipients } from "./business-labels.js";
+import Dropdown from "./components/Dropdown.jsx";
 import AssignedList from "./components/AssignedList.jsx";
 import WaitingAlerts from "./components/WaitingAlerts.jsx";
-import TeamChatDock from "./components/TeamChat.jsx";
-import { useTeamChat } from "./team-chat.js";
-import ManageLabels from "./components/ManageLabels.jsx";
+const ManageLabels = lazyComponent(() => import("./components/ManageLabels.jsx"));
+import { lazyComponent } from "./lazy.js";
 import { applyHistoryChange, chatDeletionTimes, cleanSavedHistory, loadHistory, save, saveViewed } from "./history.js";
 import { receipt, mergeAck } from "./receipts.js";
 import Constellation from "./Constellation.jsx";
@@ -34,6 +40,8 @@ import { IncomingCalls, listenForCalls, useIncomingCalls } from "./components/In
 import {VoiceRecorder,VoicePlayer} from "./components/VoiceNote.jsx";
 import {useMessageDeletion,visibleCopies,deletionPlaceholder} from "./message-deletion.js";
 import {MessageMenu,DeleteMessageDialog} from "./components/MessageDeletion.jsx";
+import AssigneeMenu from "./components/AssigneeMenu.jsx";
+import {useContactAssignees} from "./contact-assignees.js";
 
 const formats = {image: ["image/jpeg","image/png","image/webp","image/gif"], video: ["video/mp4"], document: ["application/pdf","text/plain","application/octet-stream"]};
 function Preview({kind, src, filename, incoming,recordedDuration}) {
@@ -82,6 +90,7 @@ function Preview({kind, src, filename, incoming,recordedDuration}) {
 }
 
 const senderLookups = new Map();
+onInboxChange(() => senderLookups.clear());
 
 function SenderLabel({sender,onResolved,groupMember,mention}) {
   const [resolved, setResolved] = useState(null);
@@ -246,24 +255,18 @@ function Delivery({item, acknowledgments, active}) {
 
 // `nav` (super users' tabs) sits in the mast; while `panel` is shown the chat stays mounted but hidden, so drafts,
 // history and the live stream (which carries session-ended) survive switching tabs.
-// The signed-in user's full name (NAME column), after Log out in the header.
-function UserPill({name}) {
-  const initials = name.split(/\s+/).filter(Boolean).slice(0,2).map(word => [...word][0].toUpperCase()).join("");
-  return <span className="user-pill" title={"Signed in as " + name}><span className="user-pill-initials" aria-hidden="true">{initials}</span><span className="user-pill-name">{name}</span></span>;
-}
 
-export default function App({onLogout,nav,panel,role,username,fullName,onShowChat}) {
+export default function App({onLogout,nav,panel,role,username,fullName,onShowChat,teamChat,onSendingChange,account}) {
   const [calls, dispatchCall] = useIncomingCalls();
   // Clients who got a holding reply and are still waiting (newest first).
   const [waiting, setWaiting] = useState([]);
-  // Live chat between app users (not WhatsApp); unread messages also show in the bell.
-  const teamChat = useTeamChat();
   const [newChatOpen,setNewChatOpen] = useState(false);
   const [message,setMessage] = useState("");
   const [attachments,setAttachments] = useState([]);
   const attachment = attachments[0];
   const [menu,setMenu] = useState(false);
   const [sending,setSending] = useState(false);
+  useEffect(()=>{onSendingChange(sending);},[sending,onSendingChange]);
   const [reactions,setReactions] = useState(new Map());
   const [history,setHistory] = useState([]);
   const [error,setError] = useState("");
@@ -275,8 +278,10 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   useEffect(() => {
     if (role !== "admin" && role !== "super_user") return;
     const controller = new AbortController();
-    let timer;
+    let timer, checkedAt = 0;
     async function refreshIdentity() {
+      clearTimeout(timer);
+      checkedAt = Date.now();
       try {
         const response = await authorizedFetch("/api/session-identity",{cache:"no-store",signal:controller.signal});
         if (!response.ok) throw new Error("Session identity unavailable");
@@ -285,11 +290,14 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       } catch {
         if (!controller.signal.aborted) setSessionIdentity({session:SESSION,number:null});
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refreshIdentity,60000);
+        // Every minute while the tab is visible; a hidden tab catches up when it is shown.
+        if (!controller.signal.aborted) timer = setTimeout(()=>{ if (document.visibilityState === "visible") refreshIdentity(); },60000);
       }
     }
+    const shown = () => { if (document.visibilityState === "visible" && Date.now() - checkedAt >= 60000) refreshIdentity(); };
+    document.addEventListener("visibilitychange",shown);
     refreshIdentity();
-    return () => { controller.abort(); clearTimeout(timer); };
+    return () => { controller.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange",shown); };
   }, [role]);
   const sessionName = sessionIdentity?.session || SESSION;
   const sessionLine = sessionIdentity?.number || (sessionIdentity ? "Number unavailable" : "Loading number…");
@@ -305,6 +313,8 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   const [labelError,setLabelError] = useState("");
   const [revision,refreshLabels] = useState(0);
   const hasAdminAccess=role==="admin" || role==="super_user";
+  // Admins: who handles each customer in this number, changeable from the chat list.
+  const assignees=useContactAssignees(hasAdminAccess);
   const [deletingLabel,setDeletingLabel]=useState(false);
   const [personalChats,setPersonalChats]=useState({});
   const [deletingChat,setDeletingChat]=useState(null);
@@ -329,8 +339,11 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       }catch{if(!controller.signal.aborted)setStorageError("Could not sync deleted conversations.");}
     }
     sync();
-    const timer=setInterval(sync,60000);
-    return ()=>{controller.abort();clearInterval(timer);};
+    // Only while the tab is on screen; returning to it catches up at once.
+    const timer=setInterval(()=>{if(document.visibilityState==="visible")sync();},60000);
+    const shown=()=>{if(document.visibilityState==="visible")sync();};
+    document.addEventListener("visibilitychange",shown);
+    return ()=>{controller.abort();clearInterval(timer);document.removeEventListener("visibilitychange",shown);};
   },[revision]);
   const [managingLabels,setManagingLabels]=useState(false);
   useEffect(() => {
@@ -348,9 +361,9 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       if (signal.aborted) return;
       setLabels(list);
       if (!filterLabel) return;
-      if (!list.some(label => label.id === filterLabel)) throw new Error("This label is no longer available.");
-      const members = await labelRecipients(filterLabel,signal);
-      if (!signal.aborted) setAudience({labelId:filterLabel,members});
+      if (!list.some(label => label.id === filterLabel)) throw new Error("This campaign is no longer available.");
+      const {members,total} = await labelAudience(filterLabel,signal);
+      if (!signal.aborted) setAudience({labelId:filterLabel,members,total});
     }
     let loading=false;
     async function refresh(){
@@ -367,7 +380,12 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   const [contacts,setContacts] = useState(new Map());
   const [viewed,setViewed] = useState(new Set());
   const seen = useRef(new Map());
+  // Saved history belongs to one WhatsApp account; until the open inbox is
+  // confirmed (just after switching inboxes) nothing is written.
+  const confirmed = useRef(account);
+  confirmed.current = account;
   const persist = useCallback((store,key,value) => {
+    if (!confirmed.current) return;
     save(store,key,value).catch(() => setStorageError("History could not be saved in this browser. Check available storage."));
   }, []);
   const broadcasts = useMemo(() => broadcastTracker(username, (item, confirmed) => {
@@ -392,6 +410,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     persist("contacts",sender,number);
   }, [persist]);
   useEffect(() => {
+    if (!account) return;
     let active = true;
     loadHistory().then(data => {
       if (!active) return;
@@ -410,10 +429,14 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     }).catch(() => { if (active) setStorageError("Saved history could not be opened."); })
       .finally(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [username,broadcasts]);
+  }, [username,broadcasts,account]);
   useEffect(() => {
     if (!loaded) return;
-    const stream = new EventSource("/api/incoming-text");
+    const stream = new EventSource(inboxUrl("/api/incoming-text"));
+    stream.addEventListener('inbox-status',()=>{
+      stream.close();
+      window.dispatchEvent(new Event('whatix-inbox-status'));
+    });
     listenForCalls(stream, dispatchCall);
     stream.addEventListener("ready", () => setReceiveStatus("Listening for messages"));
     // Each new connection starts with the full list, so reconnects stay in sync.
@@ -442,6 +465,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       let reason;
       try { reason = JSON.parse(event.data)?.reason; } catch { /* malformed: ignore */ }
       if (reason === "admin_revoked") { stream.close(); sessionRevoked(); }
+      else if (reason === "signed_in_elsewhere") { stream.close(); signedInElsewhere(); }
     });
     // A drop may mean the session ended while we weren't listening (missed event, sleep): ask /me, at most every 10 s.
     // If the browser gave up on the stream (e.g. a 401 before a token refresh) but the session is fine, open a new one.
@@ -467,6 +491,8 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       dispatchCall({type:"clear"});
     };
   }, [loaded,persist,streamGeneration,dispatchCall,broadcasts]);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const lock = useRef(false);
   const currentBatch = useRef(null);
   const pickers = useRef({});
@@ -486,6 +512,18 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   const restricted = role === "user";
   const visibleToUser = id => !restricted || (!!assignedNumbers && id.split(",").every(member => assignedNumbers.has(member)));
   const labelMembers = new Set(filterLoaded ? conversationKey(audience.members,contacts).split(",").filter(Boolean) : []);
+  // A regular user's label lists only their own customers; the server says how
+  // many chats carry the label in all, so an empty or short list is explained.
+  const labelShown = filterLoaded ? labelMembers.size : 0;
+  const labelTotal = filterLoaded ? audience.total : null;
+  const chatsWord = n => n + (n === 1 ? " chat" : " chats");
+  const labelReach = restricted && labelTotal != null && labelShown < labelTotal
+    ? (labelShown ? labelShown + " of " + chatsWord(labelTotal) + " in this campaign are assigned to you"
+      : chatsWord(labelTotal) + (labelTotal === 1 ? " has" : " have") + " this campaign; none are assigned to you")
+    : labelShown + " individual chats";
+  const emptyLabelReason = restricted && labelTotal
+    ? chatsWord(labelTotal) + (labelTotal === 1 ? " has" : " have") + " this campaign, but none are assigned to you. An admin can assign them on the Assign Contacts tab."
+    : "No individual chats are in this campaign yet. Add contacts to it with Manage campaigns.";
   const selectedId = view && !labelId && !view.includes(",") ? (view.includes("@") ? view : view+"@c.us") : "";
   const remote = useWahaHistory(selectedId,contacts,!restricted);
   const chatTimes=useMemo(()=>chatDeletionTimes(historyChanges,contacts),[historyChanges,contacts]);
@@ -515,6 +553,17 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     }
     return grouped;
   }, [merged,contacts,remote.directory,deletion.states,chatTimes,personalTimes]);
+  // A chat with nothing to show yet (its latest row was a system notice) is
+  // ordered by when WhatsApp last saw activity in it.
+  const activityByKey = useMemo(() => {
+    const times = new Map();
+    for (const [id,at] of remote.activity) {
+      const chatKey = conversationKey([id],contacts);
+      if (at > (times.get(chatKey) || 0)) times.set(chatKey,at);
+    }
+    return times;
+  }, [remote.activity,contacts]);
+  const lastActive = ([id,items]) => items.at(-1)?.timestamp || activityByKey.get(id) || 0;
   const visible = threads.get(key) || [];
   const activeKey = key;
   const groupId = !restricted && isGroupChat(key) ? key : "";
@@ -612,7 +661,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   function highlightedRecipients(ids){
     return ids.map((id,i)=><Fragment key={id}>{i>0?", ":""}<ContactHighlight id={id}>{label(id)}</ContactHighlight></Fragment>);
   }
-  const title = labelId ? labels?.find(item => item.id === labelId)?.name || "WhatsApp Business label"
+  const title = labelId ? labels?.find(item => item.id === labelId)?.name || "Campaign"
     : isBroadcast ? "Broadcast" : numbers.length ? label(numbers[0]) : "New chat";
   const drafts = useRef(new Map());
   function openChat(next) {
@@ -630,6 +679,8 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     setDetailsFor("");
     setView(next);
   }
+  // Arrived from another tab to open a particular customer in this inbox.
+  useEffect(() => { const key = takePendingChat(SESSION); if (key) openChat(key); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const longest = numbers.reduce((a,b) => a.length >= b.length ? a : b, "");
   const file = attachment?.file;
   const url = attachment?.url?.trim();
@@ -698,12 +749,12 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
         setLabels(list);
         if (!list.some(item => item.id === labelId)) {
           setAudience(null);
-          throw new Error("This label is no longer available.");
+          throw new Error("This campaign is no longer available.");
         }
         const fresh = await labelRecipients(labelId);
         if (conversationKey(fresh,contacts) !== labelNumbers) {
           setAudience({labelId,members:fresh});
-          throw new Error("Label membership changed. Review the updated recipients before sending.");
+          throw new Error("Campaign members changed. Review the updated recipients before sending.");
         }
       }
       const newAlbumId = attachments.length > 1 ? crypto.randomUUID() : undefined;
@@ -724,6 +775,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
           const ext = attachment.mime.split("/")[1].replace("jpeg","jpg");
           payload = {filename:attachment.name.trim() || attachment.kind+"."+ext,mimetype:attachment.mime,url};
         }
+        if(!mounted.current)return;
         const id = crypto.randomUUID();
         currentBatch.current = id;
         const recipients=[...new Set(numbers)].filter(number=>!attachment?.sentTo?.includes(number));
@@ -747,6 +799,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
         setHistory(prev => [...prev,batch]);
         let accepted = 0;
         for (const number of recipients) {
+          if(!mounted.current)return;
           let result = {number,ok:true};
           early.current = new Map();
           try {
@@ -818,34 +871,39 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     <Constellation/>
     <header className="mast"><div className="brand"><img className="logo" src="/whatix.svg" alt=""/>Whatix!</div>{nav}<div className="mast-end">{role !== "user" && <SessionPill name={sessionName} number={sessionLine}/>}<WaitingAlerts alerts={waiting} onDismiss={id => setWaiting(previous => previous.filter(item => item.id !== id))}
       onOpen={alert => { onShowChat?.(); openChat(alert.openKey); markAttended(alert.chatId).catch(() => {}); }}
-      chatAlerts={teamChat.alerts} onOpenChat={alert => teamChat.open(alert.contactId)} onDismissChat={alert => teamChat.markRead(alert.contactId)}/>{onLogout && <button type="button" className="auth-logout" onClick={onLogout}>Log out</button>}{(fullName || username) && <UserPill name={fullName || username}/>}</div></header>
+      chatAlerts={teamChat.alerts} onOpenChat={alert => teamChat.open(alert.contactId)} onDismissChat={alert => teamChat.markRead(alert.contactId)}/>{onLogout && <button type="button" className="auth-logout" onClick={onLogout}>Log out</button>}{(fullName || username) && <AccountMenu name={fullName || username}/>}</div></header>
     <IncomingCalls calls={calls} dispatch={dispatchCall}/>
-    <TeamChatDock chat={teamChat}/>
     <main id="panel-chat" role={nav ? "tabpanel" : undefined} aria-labelledby={nav ? "tab-chat" : undefined} hidden={!!panel} className={view ? "has-chat" : undefined}>
       <aside className="audience">
-        <div className="chat-list-heading"><h2>Chats</h2>{hasAdminAccess && <button type="button" disabled={sending} onClick={()=>setNewChatOpen(true)}>New chat</button>}</div>
+        {!panel && <InboxSwitcher sending={sending} admin={hasAdminAccess} username={username}/>}
+        <div className="chat-list-heading"><h2>Chats</h2>{hasAdminAccess && <button type="button" disabled={sending} onPointerEnter={NewChatDialog.preload} onFocus={NewChatDialog.preload} onClick={()=>setNewChatOpen(true)}>New chat</button>}</div>
         <div className="history-picker">
-          <label htmlFor="business-label">WhatsApp Business label</label>
-          <select id="business-label" value={filterLabel} disabled={sending} onChange={e=>{setLabelFilter(e.target.value);openChat(e.target.value ? "label:"+e.target.value : "");}}>
-            <option value="">Choose a label</option>
-            {filterLabel && !labels?.some(item=>item.id===filterLabel) && <option value={filterLabel}>Unavailable label</option>}
-            {labels?.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <div className="label-picker-actions"><button type="button" className="admin-refresh" disabled={sending} onClick={()=>setManagingLabels(true)}>Manage labels</button>
-            <button type="button" className="admin-refresh" disabled={sending} onClick={()=>refreshLabels(value=>value+1)}>Refresh labels</button></div>
+          <label htmlFor="business-label" className="visually-hidden">Campaign</label>
+          {/* One row (filter + icon actions) so the chat list starts high in the sidebar. */}
+          <div className="label-picker-row">
+            <Dropdown id="business-label" label="Campaign" value={filterLabel} disabled={sending} icon={filterLabel?undefined:"tag"}
+              searchPlaceholder="Search campaigns" onChange={value=>{setLabelFilter(value);openChat(value ? "label:"+value : "");}}
+              options={[{value:"",label:"All chats",description:"No campaign filter",icon:"chat"},
+                ...(filterLabel && !labels?.some(item=>item.id===filterLabel) ? [{value:filterLabel,label:"Unavailable campaign"}] : []),
+                ...(labels??[]).map(item=>({value:item.id,label:item.name||"Campaign "+item.id,swatch:labelColor(item)}))]}/>
+            <button type="button" className="label-tool" aria-label="Manage campaigns" title="Manage campaigns" disabled={sending} onPointerEnter={ManageLabels.preload} onFocus={ManageLabels.preload} onClick={()=>setManagingLabels(true)}><Icon name="sliders" size={17}/></button>
+            <button type="button" className="label-tool" aria-label="Refresh campaigns" title="Refresh campaigns" disabled={sending} onClick={()=>refreshLabels(value=>value+1)}><Icon name="refresh" size={17}/></button>
+          </div>
           {labelError ? <small className="error" role="alert">{labelError}</small>
-            : !labels ? <small role="status">Loading labels…</small>
-            : !labels.length ? <small role="status">Create a label in WhatsApp Business, apply it to your chats, then refresh here.</small>
-            : filterLabel && <small role="status">{!filterLoaded ? "Loading recipients…" : labelMembers.size + " individual chats"}</small>}
+            : !labels ? <small role="status">Loading campaigns…</small>
+            : !labels.length ? <small role="status">Create a campaign (a WhatsApp Business label), add your chats to it, then refresh here.</small>
+            : filterLabel && <small role="status">{!filterLoaded ? "Loading recipients…" : labelReach}</small>}
         </div>
         {restricted && <AssignedList onOpen={openChat} onLoaded={setAssignedNumbers} current={key} disabled={sending}/>}
         <nav className="chat-list" aria-label="Saved conversations">
-          {[...threads.entries()].filter(([id])=>!id.startsWith("label:") && visibleToUser(id) && (!filterLabel || labelMembers.has(id))).sort((a,b)=>(b[1].at(-1)?.timestamp || 0)-(a[1].at(-1)?.timestamp || 0)).map(([id,items])=>{
+          {[...threads.entries()].filter(([id])=>!id.startsWith("label:") && visibleToUser(id) && (!filterLabel || labelMembers.has(id))).sort((a,b)=>lastActive(b)-lastActive(a)).map(([id,items])=>{
             const members = id.split(",");
             const broadcast = members.length > 1;
             const latest = items.at(-1);
             const eligible=latest&&!latest.sender?latest.results?.filter(r=>deletion.states.get(r.id)?.mine):null;
             const unread = items.reduce((count,item) => count + Number(!!item.sender && !item.remote && !viewed.has(item.id)),0);
+            // Admins: every customer (direct chat with a known phone) gets the assignee button.
+            const assignable = hasAdminAccess && assignees.ready && !broadcast && /^\d+$/.test(id);
             return <div key={id} className="chat-list-entry"><button type="button" className="chat-row" aria-current={id===key ? "true" : undefined}
               disabled={sending} onClick={()=>openChat(id)}>
               <ContactAvatar broadcast={broadcast || isGroupChat(id)} contactId={photoIds.get(id)??id}>
@@ -854,6 +912,8 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
                 {broadcast && <span title={members.map(label).join(", ")}>{highlightedRecipients(members)}</span>}
                 <small>{latest?.display==='revoked'?deletionPlaceholder:latest?.display==='checking'?'Checking message…':latest ? latest.text || (latest.filename || (latest.kind==="video" ? "Video" : "Photo")) : "Open conversation"}</small></span>
             </button>
+            {assignable && <div className="row-assignee"><AssigneeMenu number={id} customer={"+"+id} assigned={assignees.assigneesOf(id)}
+              users={assignees.users} disabled={sending} onPick={assignees.reassign}/></div>}
             {!!eligible?.length&&!sending&&<MessageMenu key={latest.id} preview receipts={eligible} onDelete={receipts=>setDeleteTarget({receipts,broadcast})}/>}
             </div>;
           })}
@@ -866,7 +926,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
           {groupId && detailsFor === groupId && <GroupDetails title={title}
             members={roster?.groupId === groupId ? roster.members : null} error={roster?.groupId === groupId && roster.error}
             memberLabel={memberLabel} onRetry={() => refreshGroup(n => n+1)} onClose={() => setDetailsFor("")}/>}
-          <div><h1>{activeKey && !isBroadcast && !groupId ? directLabel(activeKey) : title}</h1><small>{isBroadcast && <>{highlightedRecipients(numbers)} · </>}<span role="status">{receiveStatus}</span></small></div>
+          <div><h1>{activeKey && !isBroadcast && !groupId ? directLabel(activeKey) : title}</h1><small>{isBroadcast && numbers.length > 0 && <>{highlightedRecipients(numbers)} · </>}<span role="status">{receiveStatus}</span></small></div>
           {activeKey && <label className="read-preference"><input type="checkbox" checked={allowRead}
             onChange={e=>changeReadPreference(e.target.checked)}/> Allow messages to be read</label>}
         </header>
@@ -874,7 +934,9 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
         <div className="thread" ref={viewport} role="log" aria-label="Chat messages">
           <div className="thread-content">
           {remote.older && <button type="button" onClick={()=>remote.older()}>Load older messages</button>}
-          {!visible.length && <div className="empty"><Icon name="chat" /><h2>Start a conversation</h2><p>{key ? "Type a message or attach a file." : "Select a chat or enter recipients to begin."}</p></div>}
+          {!visible.length && (labelId && filterLoaded && !numbers.length
+            ? <div className="empty"><Icon name="contacts" /><h2>No one to message in this campaign</h2><p>{emptyLabelReason}</p></div>
+            : <div className="empty"><Icon name="chat" /><h2>Start a conversation</h2><p>{key ? "Type a message or attach a file." : "Select a chat or enter recipients to begin."}</p></div>)}
           {attachmentGroups(visible).map(({items})=>items.length===1 ? renderMessage(items[0]) :
             <AttachmentAlbum messageBody={messageBody} key={"album:"+items[0].id} items={items} renderMessage={renderMessage}/>)}
           </div>
@@ -884,10 +946,12 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
             const {file,src} = attachment;
             return <fieldset key={src || index} disabled={sending} className="attachment"><div className="attach-head"><strong>{file?.name || "Attach a media link"}</strong><button type="button" aria-label="Remove attachment" onClick={()=>{discard(attachment);setAttachments(previous=>previous.filter(a=>a!==attachment));}}><Icon name="close"/></button></div>
             {file ? <Preview kind={attachment.kind} src={attachment.src} filename={file.name} recordedDuration={attachment.recordedDuration}/> : <div className="link-fields">
-              <label>Media type<select value={attachment.kind} onChange={e=>patchAttachment(attachment,{kind:e.target.value,mime:formats[e.target.value][0],name:""})}><option value="image">Image</option><option value="video">Video</option><option value="document">Document</option></select></label>
+              <label>Media type<Dropdown variant="compact" label="Media type" value={attachment.kind} menuMinWidth={180} onChange={kind=>patchAttachment(attachment,{kind,mime:formats[kind][0],name:""})}
+                options={[{value:"image",label:"Image",icon:"image"},{value:"video",label:"Video",icon:"video"},{value:"document",label:"Document",icon:"document"}]}/></label>
               <label>URL<input type="url" value={attachment.url} onChange={e=>patchAttachment(attachment,{url:e.target.value})} placeholder="https://…" /></label>
               <label>Filename<input value={attachment.name} onChange={e=>patchAttachment(attachment,{name:e.target.value})} placeholder="Optional" /></label>
-              <label>Format<select value={attachment.mime} onChange={e=>patchAttachment(attachment,{mime:e.target.value})}>{formats[attachment.kind].map(m=><option key={m}>{m}</option>)}</select></label>
+              <label>Format<Dropdown variant="compact" label="Format" value={attachment.mime} menuMinWidth={180} onChange={mime=>patchAttachment(attachment,{mime})}
+                options={formats[attachment.kind].map(m=>({value:m,label:m}))}/></label>
               {validUrl && <Preview kind={attachment.kind} src={url} filename={attachment.name}/>}
             </div>}
             {attachment.kind==="video" && <label className="convert"><input type="checkbox" checked={attachment.convert} onChange={e=>patchAttachment(attachment,{convert:e.target.checked})}/> Convert with FFmpeg</label>}
@@ -897,7 +961,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
             className="label-delete-trigger" type="button" disabled={sending} onClick={()=>setDeletingChat({
               id:selectedId.replace(/@s\.whatsapp\.net$/,"@c.us"),alias:photoIds.get(activeKey)?.replace(/@s\.whatsapp\.net$/,"@c.us"),key:activeKey
             })}>Delete from my chats…</button>}
-          {labelId && hasAdminAccess && <button className="label-delete-trigger" type="button" disabled={sending} onClick={()=>setDeletingLabel(true)}>Delete label…</button>}
+          {labelId && hasAdminAccess && <button className="label-delete-trigger" type="button" disabled={sending} onClick={()=>setDeletingLabel(true)}>Delete campaign…</button>}
           <div className="compose"><div className="tools" ref={menuBox}>
             <button className="clip" type="button" aria-label="Attach media" aria-expanded={menu} disabled={sending} onClick={()=>setMenu(!menu)}><Icon name="clip"/></button>
             {menu && <div className="popover">{["image","video","document"].map(kind=><button key={kind} type="button" onClick={()=>{setMenu(false);pickers.current[kind].click();}}><Icon name={kind}/>{kind === "image" ? "Photo" : kind === "video" ? "Video" : "Document"}</button>)}
@@ -915,17 +979,17 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
       setLabelFilter("");
       openChat(number);
     }, sending) : panel}
-    {hasAdminAccess && newChatOpen && <NewChatDialog onClose={()=>setNewChatOpen(false)} onDone={recipients=>{
+    {hasAdminAccess && newChatOpen && <Suspense fallback={null}><NewChatDialog onClose={()=>setNewChatOpen(false)} onDone={recipients=>{
       setNewChatOpen(false);
       setLabelFilter("");
       openChat(conversationKey(recipients,contacts));
-    }}/>}
-    {managingLabels&&<ManageLabels canCreate={hasAdminAccess} labels={labels??[]} initialId={labelId} chats={labelChats} onClose={()=>setManagingLabels(false)}
+    }}/></Suspense>}
+    {managingLabels&&<Suspense fallback={null}><ManageLabels canCreate={hasAdminAccess} labels={labels??[]} initialId={labelId} chats={labelChats} onClose={()=>setManagingLabels(false)}
       onRefresh={(id,created)=>{
         if(created)setLabels(previous=>[...(previous??[]).filter(l=>l.id!==id),created]);
         openChat('label:'+id);
         refreshLabels(value=>value+1);
-      }}/>}
+      }}/></Suspense>}
     {deletingChat&&hasAdminAccess&&<DeleteChatDialog id={deletingChat.id} alias={deletingChat.alias} contact={directLabel(deletingChat.key)}
       onClose={()=>setDeletingChat(null)} onDeleted={state=>{
         rememberPersonalChats(state);setDeletingChat(null);openChat("");drafts.current.delete(deletingChat.key);

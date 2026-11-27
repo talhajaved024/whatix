@@ -29,7 +29,7 @@ export function broadcastTracker(owner, update) {
           response = await authorizedFetch("/api/broadcasts", {
             method:"POST", headers:{"Content-Type":"application/json"}, body:item.pendingBody, signal
           });
-          if ([400, 403, 409, 413, 422].includes(response.status)) {
+          if ([400, 403, 409, 413, 422, 429].includes(response.status)) {
             const body = await response.json().catch(() => null);
             item = {...item, pendingBody:undefined, job:{...item.job, status:"rejected",
               error:body?.error || "Broadcast submission failed (HTTP " + response.status + ")."}};

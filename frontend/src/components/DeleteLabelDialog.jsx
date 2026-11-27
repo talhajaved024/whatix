@@ -2,9 +2,9 @@ import {useEffect,useRef,useState} from "react";
 import {authorizedFetch} from "../auth.js";
 
 const choices=[
-  ["label","Delete only the label","Keep the chats and messages."],
-  ["history","Delete label and Whatix history","Clear this label’s saved conversation across Whatix browsers. Keep the individual WhatsApp chats."],
-  ["chats","Delete label and WhatsApp chats","Delete every associated chat from the connected WhatsApp account, including chats under other labels. This affects everyone using that account."]
+  ["label","Delete only the campaign","Keep the chats and messages."],
+  ["history","Delete campaign and Whatix history","Clear this campaign’s saved conversation across Whatix browsers. Keep the individual WhatsApp chats."],
+  ["chats","Delete campaign and WhatsApp chats","Delete every associated chat from the connected WhatsApp account, including chats in other campaigns. This affects everyone using that account."]
 ];
 
 export default function DeleteLabelDialog({id,name,onClose,onDeleted,onChange}){
@@ -19,7 +19,7 @@ export default function DeleteLabelDialog({id,name,onClose,onDeleted,onChange}){
     (async()=>{
       const response=await authorizedFetch(path+"/deletion-preview",{signal:controller.signal});
       const body=await response.json();
-      if(!response.ok||!Array.isArray(body.chats))throw new Error(body.error||"Could not load label membership.");
+      if(!response.ok||!Array.isArray(body.chats))throw new Error(body.error||"Could not load the campaign’s members.");
       if(!controller.signal.aborted)setMembers(body.chats);
     })().catch(err=>{if(!controller.signal.aborted)setError(err.message);});
     return ()=>controller.abort();
@@ -44,7 +44,7 @@ export default function DeleteLabelDialog({id,name,onClose,onDeleted,onChange}){
     <fieldset disabled={busy}><legend>Choose what to delete</legend>{choices.map(([key,title,detail])=>
       <label key={key}><input type="radio" name="delete-scope" checked={scope===key} onChange={()=>{setScope(key);setMembers(null);setError("");}}/>
         <span><strong>{title}</strong><small>{detail}</small></span></label>)}</fieldset>
-    {scope==="chats"&&<p role="status">{members===null?"Checking label membership…":members.length+" WhatsApp chat(s) will be deleted."}</p>}
+    {scope==="chats"&&<p role="status">{members===null?"Checking campaign members…":members.length+" WhatsApp chat(s) will be deleted."}</p>}
     {error&&<p role="alert" className="um-error">{error} {scope==="chats"&&members===null&&<button onClick={()=>refresh(n=>n+1)}>Refresh membership</button>}</p>}
     <div className="idle-actions"><button autoFocus disabled={busy} onClick={onClose}>Cancel</button>
       <button disabled={busy||(scope==="chats"&&members===null)} onClick={remove}>{busy?"Deleting…":choices.find(c=>c[0]===scope)[1]}</button></div>
