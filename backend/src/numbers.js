@@ -121,6 +121,10 @@ export function mountNumberManagement(app,{protectedRoute,adminAccess,base,heade
   worker.get('/api/sessions/:name([A-Za-z0-9_-]+)',forward);
   worker.post('/api/sessions',forward);
   worker.post('/api/sessions/:name([A-Za-z0-9_-]+)/start',forward);
+  // Managing a connected number from the dashboard: log its phone out (to pair
+  // another), restart a stuck session, or stop it. The main number included:
+  // logging it out is how it is paired to a new phone.
+  worker.post('/api/sessions/:name([A-Za-z0-9_-]+)/:action(logout|restart|stop)',forward);
   // Deleting a number. The main number (WAHA_SESSION) carries the whole app
   // (sign-in coverage, Whatix AI, the unprefixed API), so it is refused here.
   worker.delete('/api/sessions/:name([A-Za-z0-9_-]+)',(req,res,next)=>{

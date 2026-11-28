@@ -23,12 +23,16 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   let replyCount=0,drafts=0,releaseDraft;
   const held=new Promise(resolve=>{releaseDraft=resolve;});
   let linked={name:'photo-test',status:'WORKING',me:{id:'15551234567@c.us'}};
-  const deletedSessions=[];
+  const deletedSessions=[],sessionActions=[];
   const http=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/api/sessions/photo-test'){
       if(!linked){res.writeHead(503);return res.end();}
       return res.end(JSON.stringify(linked));
+    }
+    if(req.method==='POST' && /^\/api\/sessions\/[\w-]+\/(?:logout|restart|stop)$/.test(url.pathname)){
+      sessionActions.push(url.pathname);
+      return res.end(JSON.stringify({name:url.pathname.split('/')[3],status:'STARTING',config:{secret:'private'}}));
     }
     if(url.pathname==='/api/sessions/second'){
       // Like real WAHA: 200 with an empty body and no content type.
@@ -305,6 +309,19 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   }
   const dashboardQR=await fetch(base+'/second/auth/qr',{headers:{Cookie:first,'X-Api-Key':'whatix-dashboard'}});
   assert.deepEqual(await dashboardQR.json(),{data:'pairing-image'});
+  // Logging out, restarting and stopping a number from the Add Number dashboard: admin roles only.
+  const sessionAction=(Cookie,name,action)=>fetch(base+'/sessions/'+name+'/'+action,{method:'POST',headers:{Cookie,'X-Api-Key':'whatix-dashboard'}});
+  assert.equal((await sessionAction('','second','logout')).status,401);
+  assert.equal((await sessionAction(alice,'second','restart')).status,403);
+  assert.deepEqual(sessionActions,[]);
+  for(const action of ['restart','logout','stop']){
+    const response=await sessionAction(first,'second',action);
+    assert.equal(response.status,200);
+    assert.deepEqual(await response.json(),{name:'second',status:'STARTING'});   // WAHA's private fields are not passed on
+  }
+  assert.equal((await sessionAction(first,'photo-test','restart')).status,200);   // the main number too
+  assert.deepEqual(sessionActions,['/api/sessions/second/restart','/api/sessions/second/logout','/api/sessions/second/stop','/api/sessions/photo-test/restart']);
+  assert.equal((await sessionAction(first,'second','wipe')).status,403);          // nothing else is let through
   // Deleting a number from the Add Number dashboard: admin roles only, never the main number.
   const deleteSession=(Cookie,name,dashboard=false)=>fetch((dashboard?base:base+'/admin/waha-worker/api')+'/sessions/'+name,
     {method:'DELETE',headers:{Cookie,...(dashboard?{'X-Api-Key':'whatix-dashboard'}:{})}});
