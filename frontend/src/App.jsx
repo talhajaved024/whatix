@@ -91,6 +91,11 @@ function Preview({kind, src, filename, incoming,recordedDuration}) {
 
 const senderLookups = new Map();
 onInboxChange(() => senderLookups.clear());
+// The chat list arrives with the phone behind each linked ID (digits -> digits),
+// so its rows need no lookup of their own.
+function rememberLidPhones(phones) {
+  for (const [lid,number] of Object.entries(phones)) if (!senderLookups.has(lid)) senderLookups.set(lid,Promise.resolve(number));
+}
 
 function SenderLabel({sender,onResolved,groupMember,mention}) {
   const [resolved, setResolved] = useState(null);
@@ -525,7 +530,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     ? chatsWord(labelTotal) + (labelTotal === 1 ? " has" : " have") + " this campaign, but none are assigned to you. An admin can assign them on the Assign Contacts tab."
     : "No individual chats are in this campaign yet. Add contacts to it with Manage campaigns.";
   const selectedId = view && !labelId && !view.includes(",") ? (view.includes("@") ? view : view+"@c.us") : "";
-  const remote = useWahaHistory(selectedId,contacts,!restricted);
+  const remote = useWahaHistory(selectedId,contacts,!restricted,rememberLidPhones);
   const chatTimes=useMemo(()=>chatDeletionTimes(historyChanges,contacts),[historyChanges,contacts]);
   useEffect(()=>{
     if(!loaded || !historyChanges || (!chatTimes.size && !Object.keys(historyChanges.labels).length))return;

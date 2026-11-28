@@ -174,7 +174,7 @@ export default function AssignedNumbers({id,labelledBy,onForbidden}){
    <thead><tr><th scope="col">Customer</th><th scope="col">Handled by</th><th scope="col">Assigned</th><th scope="col"><span className="idle-sr">Actions</span></th></tr></thead>
    <tbody>{rows.map(row=>{const u=byName.get(row.username);
     return <tr key={row.id}>
-     <th scope="row" data-label="Customer"><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} fallback="#"/><span className="um-mono an-phone"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></th>
+     <th scope="row" data-label="Customer"><span className="admin-user"><ContactAvatar className="admin-avatar" contactId={String(row.phoneNumber)} session={campaign?.name} fallback="#"/><span className="um-mono an-phone"><ContactHighlight id={String(row.phoneNumber)}>+{row.phoneNumber}</ContactHighlight></span></span></th>
      <td data-label="Handled by"><span className="cp-user"><Initials name={u?.name||row.username} size={30}/><span className="um-who"><strong>{u?.name||row.username}</strong><small>@{row.username}</small></span></span></td>
      <td data-label="Assigned"><span className="um-who an-when">{row.assignedAt?<><strong>{when(row.assignedAt)}</strong><small>{row.assignedBy?'by '+row.assignedBy:' '}</small></>:<small>Before tracking began</small>}</span></td>
      <td><div className="an-actions">

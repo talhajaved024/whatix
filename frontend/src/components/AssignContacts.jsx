@@ -23,7 +23,7 @@ export default function AssignContacts({users,campaign,initialUsername,handled,o
  useEffect(()=>{
   const controller=new AbortController();
   setDirectory(null);setDirectoryError('');
-  loadDirectContacts(controller.signal,campaign.name).then(setDirectory).catch(err=>{if(!controller.signal.aborted)setDirectoryError(offline(err));});
+  loadDirectContacts(controller.signal,campaign.name).then(found=>{if(!controller.signal.aborted)setDirectory(found);}).catch(err=>{if(!controller.signal.aborted)setDirectoryError(offline(err));});
   return ()=>controller.abort();
  },[reload,campaign.name]);
  // Numbers this user already has are shown ticked and locked, so they are never sent again (no 409s).
@@ -121,7 +121,7 @@ export default function AssignContacts({users,campaign,initialUsername,handled,o
       const r=results?.get(c.phone),already=isAssigned(c.phone)&&!r;
       return <li key={c.phone}><label className={already?'an-taken':undefined}>
        <input type="checkbox" checked={already||checked.has(c.phone)} disabled={already||assigned===null} onChange={e=>toggle(c.phone,e.target.checked)}/>
-       <ContactAvatar className="admin-avatar" contactId={c.phone} fallback={(c.name||'#').slice(0,1).toUpperCase()}/>
+       <ContactAvatar className="admin-avatar" contactId={c.phone} session={campaign.name} fallback={(c.name||'#').slice(0,1).toUpperCase()}/>
        <span className="um-who"><strong><ContactHighlight id={c.phone}>{c.name||'+'+c.phone}</ContactHighlight></strong>{c.name&&<small><ContactHighlight id={c.phone}>+{c.phone}</ContactHighlight></small>}</span>
        {already&&<span className="um-badge">Assigned</span>}
        {r&&<span className={'an-status '+r.status} title={r.error||undefined}>{statusText[r.status]??''}</span>}

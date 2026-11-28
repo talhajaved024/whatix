@@ -4,6 +4,7 @@ import {badPage,pageMeta,pageRequest,searchTerm} from './paging.js';
 import {campaignAccess,AVAILABILITY_MAX_AGE_MS} from './campaign-access.js';
 import { mountNumberManagement, dashboardUpgrade, validInboxName } from './numbers.js';
 import { upstreamHub } from './upstream-hub.js';
+import { chatList } from './chat-list.js';
 import { requirementStore, requirementRange, senderPhone, receivedDate } from './offline-requirements.js';
 import 'dotenv/config';
 import { dirname, join, resolve } from 'node:path';
@@ -959,6 +960,24 @@ async function createInboxRouter(SESSION){
       res.status(status).json(body);
     }catch{res.status(503).json({error:'Could not save message state'});}
   });
+  // The whole chat list in one answer (chat-list.js), instead of 100+ browser requests.
+  const chats=chatList({base:WAHA,session:SESSION,headers:wahaHeaders});
+  app.get('/api/chat-list',adminAccess,async(req,res)=>{
+    res.set('Cache-Control','no-store');
+    try{
+      // The list belongs to the phone this session is paired to right now. It is
+      // checked again after reading: a session re-paired meanwhile is refused
+      // rather than answered with chats that may come from two accounts.
+      const account=await access.identity({maxAgeMs:AVAILABILITY_MAX_AGE_MS});
+      if(!account)return res.status(409).json({error:'This WhatsApp number is not connected.'});
+      const answer=await chats.get({stale:req.query.stale==='1',phones:req.query.phones==='1',account});
+      if(await access.identity()!==account){
+        chats.reset();
+        return res.status(409).json({error:'This WhatsApp number changed. Try again.'});
+      }
+      res.json(answer);
+    }catch{res.status(502).json({error:'The WhatsApp chat list could not be loaded.'});}
+  });
   app.get('/api/contacts/name',async(req,res)=>{
     const {contactId}=req.query;
     if(typeof contactId!=='string' || !/^\d{1,20}@(c\.us|lid)$/.test(contactId))
@@ -1114,8 +1133,9 @@ async function createInboxRouter(SESSION){
     },
     onEvent:event=>{
       if(event?.session===SESSION && event.event==='session.status'){
-        phones.invalidate(SESSION);identityAnswer=null;directory.invalidate?.();
+        phones.invalidate(SESSION);identityAnswer=null;directory.invalidate?.();chats.reset();
       }
+      if(event?.session===SESSION && event.event==='message')chats.invalidate();
       // Call state is shared server-side (admins subscribe to it), so it is
       // recorded before any stream's own visibility filter.
       calls.observe(event);

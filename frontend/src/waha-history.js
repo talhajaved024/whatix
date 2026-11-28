@@ -116,7 +116,9 @@ export function mergeHistory(local, remote) {
   return [...enriched,...[...remote.values()].filter(item=>!ids.has(item.id))].sort(byTime);
 }
 
-export function useWahaHistory(selectedId, contacts, includeGroups) {
+// includeGroups: an admin's view (every chat of the number, groups included).
+// onPhones: told the phone behind each linked ID before the chats are shown.
+export function useWahaHistory(selectedId, contacts, includeGroups, onPhones) {
   const [messages,setMessages] = useState(new Map());
   const [directory,setDirectory] = useState(new Map());
   // When each chat was last active, including system notices, so a chat whose
@@ -139,37 +141,56 @@ export function useWahaHistory(selectedId, contacts, includeGroups) {
   useEffect(() => {
     const controller = new AbortController();
     setOverviewError("");
-    // Chats whose latest row is a system notice: look back for their newest
-    // real message. One with none is notice-only, which the phone does not list.
-    async function lookBack(chats) {
-      const queue = [...chats];
-      const worker = async () => {
-        for (let c; (c = queue.shift());) {
-          try {
-            const rows = await page("/"+encodeURIComponent(c.id)+"/messages",0,controller.signal,10);
-            const times = pageTimestamps(rows);
-            const real = rows.map((msg,index)=>historicalMessage(c.id,msg,times[index])).filter(Boolean);
-            if (real.length) append(real);
-            else setDirectory(previous => { const next = new Map(previous); next.delete(c.id); return next; });
-          } catch (err) { if (controller.signal.aborted) throw err; /* keep the chat; it is ordered by activity */ }
-        }
-      };
-      await Promise.all([worker(),worker(),worker()]);
+    // The inbox this list is for. An answer that arrives after the open inbox
+    // changed belongs to the other WhatsApp number and is dropped unread.
+    const opened = SESSION;
+    const current = () => { if (SESSION !== opened) controller.abort(); controller.signal.throwIfAborted(); };
+    function show(chats) {
+      setDirectory(previous => new Map([...previous,...chats.map(c=>[c.id,c.name || c._chat?.name || c.id])]));
+      setActivity(previous => new Map([...previous,...chats.map(c=>[c.id,(Number(c._chat?.t) || Number(c.lastMessage?.timestamp) || 0)*1000])]));
+      // The chat's own time (_chat.t) stands in if its last message has none.
+      append(chats.map(c=>historicalMessage(c.id,c.lastMessage,Number(c._chat?.t)*1000)));
     }
-    async function load() {
-      const noticesLast = [];
+    // Admins: the whole list in one request. The server has already read the
+    // newest rows of every chat whose latest row is a system notice (`recent`),
+    // so a notice-only chat, which the phone does not list, never appears, and
+    // the others get their newest real message. A chat the server could not
+    // read is kept and ordered by activity.
+    async function loadAll() {
+      const response = await authorizedFetch("/api/chat-list?phones=1",{signal:controller.signal,cache:"no-store"});
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error("Chat list returned HTTP " + response.status + "." + (typeof detail?.error === "string" ? " " + detail.error.slice(0,240) : ""));
+      }
+      const {chats,recent,phones} = await response.json();
+      current();
+      if (!Array.isArray(chats)) throw new Error("WAHA returned an invalid chat list.");
+      if (phones) onPhones?.(phones);
+      const listed = [], found = [];
+      for (const c of chats) {
+        if (!direct.test(c.id) && !isGroupChat(c.id)) continue;
+        const rows = isSystemRow(c.lastMessage) ? recent?.[c.id] : null;
+        if (Array.isArray(rows)) {
+          const times = pageTimestamps(rows);
+          const real = rows.map((msg,index)=>historicalMessage(c.id,msg,times[index])).filter(Boolean);
+          if (!real.length) continue;
+          found.push(...real);
+        }
+        listed.push(c);
+      }
+      show(listed);
+      append(found);
+    }
+    // Regular users: the server answers with just their assigned customers.
+    async function loadAssigned() {
       for (let offset=0;;offset+=limit) {
         const chats = await page("/overview",offset,controller.signal);
-        const visibleChats = chats.filter(chat=>direct.test(chat.id) || (includeGroups && isGroupChat(chat.id)));
-        setDirectory(previous => new Map([...previous,...visibleChats.map(c=>[c.id,c.name || c._chat?.name || c.id])]));
-        setActivity(previous => new Map([...previous,...visibleChats.map(c=>[c.id,(Number(c._chat?.t) || Number(c.lastMessage?.timestamp) || 0)*1000])]));
-        // The chat's own time (_chat.t) stands in if its last message has none.
-        append(visibleChats.map(c=>historicalMessage(c.id,c.lastMessage,Number(c._chat?.t)*1000)));
-        noticesLast.push(...visibleChats.filter(c=>isSystemRow(c.lastMessage)));
+        current();
+        show(chats.filter(chat=>direct.test(chat.id)));
         if (chats.length < limit) break;
       }
-      await lookBack(noticesLast);
     }
+    const load = includeGroups ? loadAll : loadAssigned;
     load().catch(err=>{if (!controller.signal.aborted) setOverviewError(err.message);});
     return () => controller.abort();
   }, [retry,includeGroups]);

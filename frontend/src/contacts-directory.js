@@ -6,7 +6,6 @@ import {isSystemRow} from "./waha-history.js";
 // LID-only chats are resolved through WAHA's /lids lookup; ones without a known phone are counted, not listed.
 // Another campaign's directory is addressed explicitly; the open inbox uses relative paths.
 const baseFor=session=>!session||session===SESSION?"/api/"+encodeURIComponent(SESSION):campaignApi(session,"/api/"+encodeURIComponent(session));
-const limit=50;
 const phoneId=/^(\d+)@(?:c\.us|s\.whatsapp\.net)$/,lidId=/^(\d+)@lid$/;
 const idOf=chat=>typeof chat?.id==="string"?chat.id:chat?.id?._serialized||"";
 async function read(path,signal,session){
@@ -21,51 +20,39 @@ export async function resolveLid(lid,signal,session){
  try{const {pn}=await read("/lids/"+encodeURIComponent(lid),signal,session);return phoneId.exec(pn||"")?.[1]||null;}
  catch(err){if(signal?.aborted)throw err;return null;}
 }
+// One request (the server's chat-list.js) returns the chats, the newest rows of
+// every chat whose latest row is a system notice, and the phone behind each
+// linked ID. A list built in the last few minutes is accepted (stale=1): who
+// the contacts are changes slowly.
 // A chat whose newest row is a system notice ("messages are end-to-end encrypted",
 // templates) may hold no conversation at all: WhatsApp Web keeps such notice-only
 // chats, for example ones opened by a lookup, but the phone does not list them.
-// Same rule as the chat list (waha-history.js lookBack): look at its latest rows
-// and keep it only if one is a real message. A failed lookup keeps the chat.
-async function hasConversation(id,signal,session){
- try{
-  const rows=await read("/chats/"+encodeURIComponent(id)+"/messages?limit=10&offset=0&downloadMedia=false",signal,session);
-  return !Array.isArray(rows)||rows.some(row=>!isSystemRow(row));
- }catch(err){if(signal?.aborted)throw err;return true;}
-}
+// Same rule as the chat list (waha-history.js): it is kept only if one of its
+// latest rows is a real message. One the server could not read is kept.
 export async function loadDirectContacts(signal,session){
- const found=new Map(),lids=[],chats=[],noticeOnly=[];
- for(let offset=0;;offset+=limit){
-  const page=await read("/chats/overview?limit="+limit+"&offset="+offset,signal,session);
-  if(!Array.isArray(page))throw new Error("WAHA returned an invalid chat list.");
-  for(const chat of page){
-   const id=idOf(chat);
-   if(!phoneId.test(id)&&!lidId.test(id))continue;
-   (isSystemRow(chat.lastMessage)?noticeOnly:chats).push({id,name:typeof chat.name==="string"?chat.name.trim():""});
-  }
-  if(page.length<limit)break;
+ // Always addressed by name, so the answer is that campaign's own list whichever inbox is open.
+ const response=await authorizedFetch(campaignApi(session||SESSION,"/api/chat-list?stale=1&phones=1"),{signal,cache:"no-store"});
+ const body=await response.json().catch(()=>null);
+ if(!response.ok)throw new Error(typeof body?.error==="string"?body.error:"The WhatsApp contact list could not be loaded (HTTP "+response.status+").");
+ if(!Array.isArray(body?.chats))throw new Error("WAHA returned an invalid chat list.");
+ const found=new Map();
+ let empty=0,unresolved=0;
+ const keep=(phone,name)=>{if(!found.has(phone)||name&&!found.get(phone).name)found.set(phone,{phone,name});};
+ const linked=[];
+ for(const chat of body.chats){
+  const id=idOf(chat),phone=phoneId.exec(id)?.[1],lid=lidId.exec(id)?.[1];
+  if(!phone&&!lid)continue;
+  const rows=isSystemRow(chat.lastMessage)?body.recent?.[id]:null;
+  if(Array.isArray(rows)&&rows.every(isSystemRow)){empty++;continue;}
+  const name=typeof chat.name==="string"?chat.name.trim():"";
+  if(phone)keep(phone,name);
+  else linked.push({lid,name});
  }
- // Only this number's own chats are read (never another session's IDs, which would create empty chats there).
- let empty=0;
- for(let i=0;i<noticeOnly.length;i+=6){
-  const batch=noticeOnly.slice(i,i+6);
-  const kept=await Promise.all(batch.map(chat=>hasConversation(chat.id,signal,session)));
-  batch.forEach((chat,index)=>kept[index]?chats.push(chat):empty++);
- }
- for(const {id,name} of chats){
-  const phone=phoneId.exec(id)?.[1];
-  if(phone){if(!found.has(phone)||name&&!found.get(phone).name)found.set(phone,{phone,name});}
-  else lids.push({lid:lidId.exec(id)[1],name});
- }
- let unresolved=0;
- // A few lookups at a time keeps WAHA responsive on large accounts.
- for(let i=0;i<lids.length;i+=6){
-  const batch=lids.slice(i,i+6);
-  const phones=await Promise.all(batch.map(item=>resolveLid(item.lid,signal,session)));
-  batch.forEach((item,index)=>{
-   const phone=phones[index];
-   if(!phone){unresolved++;return;}
-   if(!found.has(phone)||item.name&&!found.get(phone).name)found.set(phone,{phone,name:item.name});
-  });
+ // After the phone-keyed chats, so a customer known both ways is listed once.
+ for(const {lid,name} of linked){
+  const phone=body.phones?.[lid];
+  if(phone)keep(phone,name);
+  else unresolved++;
  }
  const contacts=[...found.values()].filter(c=>/^[1-9]\d{0,14}$/.test(c.phone));
  contacts.sort((a,b)=>(!a.name-!b.name)||(a.name||a.phone).localeCompare(b.name||b.phone));
