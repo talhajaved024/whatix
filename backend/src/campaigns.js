@@ -111,6 +111,9 @@ export function campaignStore(db){
       // fresh: the user did not have this customer before (told to the user, not sent to the browser).
       return {id,phoneNumber,username,assignedAt:kept?kept.assigned_at:at,removedFrom:previous,fresh:!kept};
     }),
+    // The number left this session (number-retirement.js): every grant on it goes,
+    // with its labels and customers. keep: the phone paired now, whose grants stay.
+    retire:(name,keep=null)=>db.use(async s=>changed((await s.run('DELETE FROM campaign_grants WHERE session=?'+(keep?' AND campaign_phone<>?':''),keep?[name,keep]:[name])).changes)),
     // Removing a grant also removes its labels and assigned customers.
     revoke:(name,phone,userId)=>db.use(async s=>changed((await s.run('DELETE FROM campaign_grants WHERE session=? AND campaign_phone=? AND user_id=?',[name,phone,userId])).changes)),
     contact:(name,phone,method,id,body,actor=null)=>db.transaction(async s=>{

@@ -60,8 +60,14 @@ export async function broadcastQueue(store,{send,canSend}){
   const key=(owner,id)=>owner+'-'+id;
   const statePath=j=>key(j.owner,j.id)+'.json';
   const payloadPath=j=>key(j.owner,j.id)+'.payload';
-  async function commit(j){
+  // clear() drops every job; a save that was under way then is undone, and a job
+  // that was dropped is not saved again (fresh: a job being admitted).
+  let epoch=0;
+  async function commit(j,fresh=false){
+    if(!fresh && !jobs.has(key(j.owner,j.id)))return j;
+    const at=epoch;
     await store.put(statePath(j),JSON.stringify(j));
+    if(at!==epoch){await store.drop(statePath(j));return j;}
     jobs.set(key(j.owner,j.id),j);
     return j;
   }
@@ -106,7 +112,7 @@ export async function broadcastQueue(store,{send,canSend}){
         }else{
           const body=JSON.parse(await store.get(payloadPath(job)));
           const stop=job.batchEnd;
-          while(!closed && job.results.length<stop){
+          while(!closed && jobs.has(key(job.owner,job.id)) && job.results.length<stop){
             const number=job.recipients[job.results.length];
             job=await commit({...job,inFlight:true,nextBatchAt:0});
             let result;
@@ -149,7 +155,7 @@ export async function broadcastQueue(store,{send,canSend}){
       if(active>=MAX_ACTIVE_JOBS)return 'busy';
       const job={id,owner,recipients,kind,digest,createdAt:Date.now(),batchEnd:Math.min(recipients.length,nextBatchSize()),nextBatchAt:0,inFlight:false,results:[]};
       await store.put(payloadPath(job),payload);
-      await commit(job);
+      await commit(job,true);
       wake();
       return job;
     });
@@ -166,7 +172,12 @@ export async function broadcastQueue(store,{send,canSend}){
     if(!job)return res.status(404).json({error:'Broadcast not found'});
     res.json(progress(job));
   });
-  return {router,close(){closed=true;clearTimeout(timer);}};
+  return {router,close(){closed=true;clearTimeout(timer);},
+    // The WhatsApp number these were queued for is gone: nothing more is sent.
+    async clear(){
+      epoch++;jobs.clear();clearTimeout(timer);
+      for(const name of await store.keys())await store.drop(name);
+    }};
 }
 
 export function broadcastSender(waha,session,headers,sent){

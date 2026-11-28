@@ -14,6 +14,68 @@ export function bindHistory(account){
   accountKey=account;
   return true;
 }
+
+// A WhatsApp number that was removed takes its saved chats with it, in this browser too.
+// History is one database per account ID. The server lists the IDs that still stand for the
+// signed-in user (/api/history-accounts); any other database is deleted: its number was
+// deleted, paired to another phone, or taken away from this user. One is kept while its number
+// is merely not connected right now ("pending"), because nothing can be concluded then.
+// Each database is recorded with the user and number it was opened for, so one person's
+// sign-in never deletes another person's history in a shared browser.
+const PREFIX="dispatch-account-history-",INDEX="whatix-history-files",SWEPT="whatix-history-swept";
+function readIndex(){
+  try{const value=JSON.parse(localStorage.getItem(INDEX)||"{}");return value && typeof value==="object" && !Array.isArray(value)?value:{};}
+  catch{return {};}
+}
+const writeIndex=index=>{try{localStorage.setItem(INDEX,JSON.stringify(index));}catch{ /* storage blocked: nothing is recorded, so nothing is deleted */ }};
+export function rememberHistory(account,user,session){
+  const index=readIndex(),known=index[account];
+  if(known?.user===user && known.session===session)return;
+  index[account]={user,session};writeIndex(index);
+}
+const dropDatabase=name=>new Promise(resolve=>{
+  const request=indexedDB.deleteDatabase(name);
+  request.onsuccess=()=>resolve(true);
+  request.onerror=request.onblocked=()=>resolve(false);   // open in another tab: tried again later
+});
+let sweeping=false,sweptAt=0;
+// fetcher: authorizedFetch (passed in: auth.js already imports this module's users).
+export async function sweepHistory(user,fetcher,{force=false}={}){
+  if(sweeping || !user || (!force && Date.now()-sweptAt<300000))return;
+  sweeping=true;
+  try{
+    const response=await fetcher("/api/history-accounts",{cache:"no-store"});
+    if(!response.ok)return;   // cannot tell right now: delete nothing
+    const body=await response.json().catch(()=>null);
+    if(!Array.isArray(body?.accounts) || !Array.isArray(body?.pending))return;
+    sweptAt=Date.now();
+    const valid=new Set(body.accounts),pending=new Set(body.pending),removed=[];
+    for(const [account,entry] of Object.entries(readIndex())){
+      if(entry?.user!==user || valid.has(account) || pending.has(entry.session))continue;
+      // Still open here (its number went away under this very screen): close it first.
+      if(account===accountKey){
+        const open=database;
+        database=undefined;accountKey=undefined;
+        await open?.then(db=>db.close()).catch(()=>{});
+      }
+      if(!/^[0-9a-f]{64}$/.test(account) || await dropDatabase(PREFIX+account))removed.push(account);
+    }
+    // Once per browser: databases saved before this record was kept belong to nobody we can
+    // name, so every one that is not a current account of this user is deleted.
+    let swept=false;
+    try{swept=localStorage.getItem(SWEPT)==="1";}catch{swept=true;}
+    if(!swept && !body.pending.length && indexedDB.databases){
+      const index=readIndex();
+      for(const {name} of await indexedDB.databases()){
+        const account=name?.startsWith(PREFIX)?name.slice(PREFIX.length):null;
+        if(account && !index[account] && !valid.has(account) && account!==accountKey)await dropDatabase(name);
+      }
+      try{localStorage.setItem(SWEPT,"1");}catch{ /* runs again next time */ }
+    }
+    if(removed.length){const index=readIndex();for(const account of removed)delete index[account];writeIndex(index);}
+  }catch{ /* offline: the next pass does it */ }
+  finally{sweeping=false;}
+}
 function open() {
   if (!accountKey) throw Error('Select a connected WhatsApp account first');
   if (!database) database = new Promise((resolve,reject) => {

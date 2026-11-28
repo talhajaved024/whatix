@@ -315,10 +315,23 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.match((await mainRefused.json()).message,/main WhatsApp number \(photo-test\) cannot be deleted/);
   assert.equal((await deleteSession(first,'photo-test',true)).status,403);   // same through the dashboard's own path
   assert.deepEqual(deletedSessions,[]);                                     // nothing reached WAHA so far
+  // Devices are told which saved histories still stand: one account per connected number.
+  const historyAccounts=async Cookie=>(await get(base+'/history-accounts',Cookie)).json();
+  const secondKey=(await (await get(inbox+'/inbox-availability',first)).json()).account;
+  const mainKey=await verified(first);
+  assert.equal((await get(base+'/history-accounts','')).status,401);
+  assert.deepEqual((await historyAccounts(first)).accounts.sort(),[mainKey,secondKey].sort());
+  assert.deepEqual(await historyAccounts(alice),{accounts:[await verified(alice)],pending:[]});   // only numbers she holds
   const deleted=await deleteSession(first,'second',true);
   assert.equal(deleted.status,200);                                        // WAHA's empty answer passes through
   assert.equal(await deleted.text(),'');
   assert.deepEqual(deletedSessions,['second']);
+  // The deleted number's history account is retired for good: a number connected under
+  // that name afterwards gets another one, so no device opens the old history again.
+  await new Promise(resolve=>setTimeout(resolve,50));
+  const after=(await historyAccounts(first)).accounts;
+  assert.ok(after.includes(mainKey) && !after.includes(secondKey));
+  assert.notEqual((await (await get(inbox+'/inbox-availability',first)).json()).account,secondKey);
   assert.equal((await deleteSession(first,'bad..name')).status,403);        // not a session name: refused by the gateway
   assert.deepEqual(deletedSessions,['second']);
   const deleteLabel=(Cookie,scope)=>fetch(base+'/business-labels/2',{method:'DELETE',headers:{Cookie,'Content-Type':'application/json'},body:JSON.stringify({scope,expectedChats:[]})});
@@ -663,7 +676,12 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   assert.notEqual(keyAfter,keyBefore);
   await statusReader.cancel();
   linked.me.id='15551234567@c.us';await advance(5001);          // back to the original phone
-  assert.equal(await verified(first),keyBefore);
+  // A number that left is gone for good: pairing it again does not reopen the history
+  // saved for it before, on any device (number-retirement.js).
+  const keyAgain=await verified(first);
+  assert.match(keyAgain,/^[a-f0-9]{64}$/);
+  assert.notEqual(keyAgain,keyBefore);
+  assert.notEqual(keyAgain,keyAfter);
   readerVoice.releaseLock();
   assert.equal((await revoke(first,id)).status,204);
   let ending='';

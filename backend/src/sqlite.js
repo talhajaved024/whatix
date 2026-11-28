@@ -49,8 +49,9 @@ CREATE TABLE away_replies(day TEXT NOT NULL,event_hash TEXT NOT NULL,PRIMARY KEY
 `;
 
 // Schema version 2: campaigns. A grant lets one regular user work in one
-// campaign number (a WAHA session paired to campaign_phone). Re-pairing the
-// session to another phone leaves old grants inert rather than moving them.
+// campaign number (a WAHA session paired to campaign_phone). Grants never move
+// to another phone: when the session is paired to a different one, or deleted,
+// its grants are erased (number-retirement.js).
 export const campaignSchema=`
 CREATE TABLE campaign_grants(ID INTEGER PRIMARY KEY AUTOINCREMENT,session TEXT NOT NULL,
  campaign_phone TEXT NOT NULL CHECK(campaign_phone GLOB '[1-9]*' AND length(campaign_phone)<=15),

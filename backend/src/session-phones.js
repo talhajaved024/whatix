@@ -8,7 +8,9 @@
 export const campaignPhone=session=>
   session?.status==='WORKING' && /^(\d+)(?::\d+)?@(?:c\.us|s\.whatsapp\.net)$/.exec(session.me?.id)?.[1] || null;
 
-export function sessionPhones({base,headers,ttlMs=15000,errorTtlMs=2000,now=Date.now}){
+// onPhone(name,phone): told of every connected number before the answer is used, so a
+// number that replaced another is dealt with first (number-retirement.js).
+export function sessionPhones({base,headers,ttlMs=15000,errorTtlMs=2000,now=Date.now,onPhone}){
   const cache=new Map(); // name -> {at, value} | {at, error} | {pending}
   async function lookup(name){
     const response=await fetch(base+'/api/sessions/'+encodeURIComponent(name),{headers:headers(),redirect:'error',signal:AbortSignal.timeout(6000)});
@@ -17,7 +19,9 @@ export function sessionPhones({base,headers,ttlMs=15000,errorTtlMs=2000,now=Date
       throw Object.assign(Error('WhatsApp data unavailable'),{status:response.status===404?404:502});
     }
     const row=await response.json();
-    return row?.name===name?campaignPhone(row):null;
+    const phone=row?.name===name?campaignPhone(row):null;
+    if(phone)await onPhone?.(name,phone);
+    return phone;
   }
   function phone(name,{fresh=false,maxAgeMs=ttlMs}={}){
     const hit=cache.get(name);

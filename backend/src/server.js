@@ -19,6 +19,7 @@ import { broadcastQueue, broadcastSender } from './broadcasts.js';
 import { awayResponder, intakeModel, listenForAwayMessages } from './away-replies.js';
 import { busyResponder } from './busy-replies.js';
 import { chatCoverage } from './coverage.js';
+import { numberRetirement } from './number-retirement.js';
 import { waitingAlerts } from './waiting-alerts.js';
 import { teamChat } from './team-chat.js';
 import { openWhatix } from './whatix.js';
@@ -65,7 +66,11 @@ if(production)accounts.passwordMatches(USERNAME,'admin').then(weak=>{
 const assigned=assignmentStore(db);
 const campaignStoreDb=campaignStore(db);
 // Business phone of each WAHA session, cached and shared (see session-phones.js).
-const phones=sessionPhones({base:WAHA,headers:()=>wahaHeaders()});
+// Set once the database is ready (below). Every connected number is reported to
+// it first, so one that replaced another has the old one's data erased.
+let numberState=null;
+const phones=sessionPhones({base:WAHA,headers:()=>wahaHeaders(),
+  onPhone:(name,phone)=>Promise.resolve(numberState?.observe(name,phone)).catch(()=>{console.error('Could not erase the data of a replaced WhatsApp number; it is retried');})});
 const requirements=requirementStore(db);
 
 // Which chats signed-in staff can see: admins and the super user see all,
@@ -723,8 +728,43 @@ const wahaHeaders=()=>({'X-Api-Key':process.env.WAHA_API_KEY});
 const inboxRegistry=records(db,'connected-inboxes');
 const routers=new Map();
 const directory=mountNumberManagement(app,{protectedRoute,adminAccess,base:WAHA,headers:wahaHeaders,defaultSession:SESSION,
-  // A number deleted on the Add Number tab is not restarted with the backend.
-  onSessionDeleted:name=>{inboxRegistry.drop(name).catch(()=>{});}});
+  // A number deleted on the Add Number tab is not restarted with the backend,
+  // and everything kept for it is erased (number-retirement.js).
+  onSessionDeleted:async name=>{
+    try{
+      await inboxRegistry.drop(name);
+      await numberState.remove(name);
+      const router=await routers.get(name)?.catch(()=>null);
+      routers.delete(name);router?.shutdown();phones.invalidate(name);
+    }catch{console.error('A deleted WhatsApp number could not be fully erased');}
+  }});
+const sessionNamespaces=name=>{const key=crypto.createHash('sha256').update(name).digest('hex');return ['personal:'+key,'labels:'+key,'broadcasts:'+key];};
+numberState=await numberRetirement({store:records(db,'number-state'),campaigns:campaignStoreDb,
+  async forget(name){
+    await (await routers.get(name)?.catch(()=>null))?.forget();
+    await db.use(s=>s.run('DELETE FROM app_records WHERE namespace IN (?,?,?)',sessionNamespaces(name)));
+  }});
+// Devices keep chat history per account ID (inbox-availability). This lists the
+// IDs still valid for this user; a device deletes what it holds under any other
+// ID, unless that history's number is listed as pending (not connected just
+// now, so nothing can be concluded about it).
+app.get('/api/history-accounts',protectedRoute,async(req,res)=>{
+  res.set('Cache-Control','no-store');
+  try{
+    const role=roleOf(req.auth.sub),accounts=[],pending=[];
+    const held=role==='user'?new Set((await campaignStoreDb.forUser(req.userId)).map(grant=>grant.session)):null;
+    for(const row of await directory()){
+      if(held && !held.has(row.name))continue;
+      if(row.status!=='WORKING'){pending.push(row.name);continue;}
+      try{
+        if(!routers.has(row.name))await inboxRegistry.put(row.name,'true');
+        const account=await (await inboxRouter(row.name)).accountFor(req.userId,role);
+        if(account)accounts.push(account);
+      }catch{pending.push(row.name);}
+    }
+    res.json({accounts,pending});
+  }catch{res.status(503).json({error:'Could not list history accounts'});}
+});
 
 // "A customer was assigned to you" notifications (assignment-notices.js). They
 // belong to the user, not to one WhatsApp number, so every open stream of that
@@ -910,11 +950,24 @@ async function createInboxRouter(SESSION){
       // number per 5 s instead of one per tab (audit PERF-04).
       const phone=req.campaign?.phone || await access.identity({maxAgeMs:AVAILABILITY_MAX_AGE_MS});
       if(!phone)return res.json({account:null});
-      // The browser can partition local history without revealing the sender number to regular users.
-      const account=crypto.createHmac('sha256',process.env.WHATIX_PASSWORD_SECRET || ACCESS_SECRET).update(JSON.stringify(req.campaign?[SESSION,phone,req.userId,[...req.campaign.numbers].sort(),req.campaign.labels]:[SESSION,phone,req.userId])).digest('hex');
-      res.json({account});
+      res.json({account:accountId(req.campaign,phone,req.userId)});
     }catch(err){res.sendStatus(err.status||502);}
   });
+  // The browser can partition local history without revealing the sender number to regular users.
+  // The number's generation is part of it once a number has left this session name, so history
+  // saved for the number that left is never opened again (number-retirement.js).
+  function accountId(campaign,phone,userId){
+    const parts=campaign?[SESSION,phone,userId,[...campaign.numbers].sort(),campaign.labels]:[SESSION,phone,userId];
+    const generation=numberState.generation(SESSION);
+    if(generation)parts.push({generation});
+    return crypto.createHmac('sha256',process.env.WHATIX_PASSWORD_SECRET || ACCESS_SECRET).update(JSON.stringify(parts)).digest('hex');
+  }
+  // This user's account ID here, or null without access (/api/history-accounts).
+  app.accountFor=async(userId,role)=>{
+    if(role==='user'){const campaign=await access.load(userId);return campaign?accountId(campaign,campaign.phone,userId):null;}
+    const phone=await access.identity();
+    return phone?accountId(null,phone,userId):null;
+  };
   // This number's own phone and linked ID rarely change: shared for 30 s, and
   // dropped when WAHA reports a session status change.
   let identityAnswer=null;
@@ -1305,6 +1358,9 @@ async function createInboxRouter(SESSION){
       event:onEvent
     });
   });
+  // The number left this session (number-retirement.js): drop what is held for it in memory.
+  app.forget=async()=>{await broadcasts.clear();chats.reset();phones.invalidate(SESSION);identityAnswer=null;};
+  app.shutdown=()=>broadcasts.close();
   return app;
 }
 const defaultSession=SESSION;

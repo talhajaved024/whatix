@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {authorizedFetch} from './auth.js';
-import {bindHistory} from './history.js';
+import {bindHistory,rememberHistory,sweepHistory} from './history.js';
 
 // Whether `session` (the open inbox) is connected, as {account} once checked:
 // undefined while this session is being checked, account null if unavailable.
@@ -8,7 +8,7 @@ export function useInboxAvailability(username,session){
   const [verified,setVerified]=useState(null);
   useEffect(()=>{
     if(!username)return;
-    let active=true,request,timer;
+    let active=true,request,timer,swept;
     const unavailable=()=>setVerified({username,session,account:null});
     function cancel(){
       clearTimeout(timer);
@@ -27,6 +27,13 @@ export function useInboxAvailability(username,session){
         // Refused: this user no longer holds this inbox's campaign. Re-read
         // their campaigns now, so the view moves on without waiting.
         if(response.status===403)window.dispatchEvent(new Event('whatix-campaigns-changed'));
+        // Saved chats of a number that was removed, re-paired or taken from this user are
+        // deleted from this browser: at once when the answer here changes, else every 5 minutes.
+        if(account && bindHistory(account))rememberHistory(account,username,session);
+        if(response.ok || response.status===403 || response.status===409){
+          sweepHistory(username,authorizedFetch,{force:swept!==account});
+          swept=account;
+        }
         if(!account)unavailable();
         else if(bindHistory(account))setVerified({username,session,account});
         else{
