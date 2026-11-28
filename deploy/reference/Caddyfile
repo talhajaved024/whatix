@@ -27,9 +27,32 @@ http://:80 {
             flush_interval -1
         }
     }
+    # Built files carry a content hash in their name, so one that exists never
+    # changes: browsers may keep it for good.
+    @asset {
+        path /assets/*
+        file {
+            root /srv
+        }
+    }
+    handle @asset {
+        header Cache-Control "public, max-age=31536000, immutable"
+        root * /srv
+        file_server
+    }
+    # A built file that is not here (a browser still on the previous release, or
+    # a rollback) is a 404, never the page below: browsers cached that page under
+    # the script's address and the screen then failed to open until the cache expired.
+    handle /assets/* {
+        header Cache-Control "no-store"
+        respond 404
+    }
     handle {
         header Content-Security-Policy "frame-ancestors 'self'; object-src 'none'; base-uri 'none'"
         header X-Frame-Options SAMEORIGIN
+        # The page names the current build's files: browsers must ask for it each
+        # time (a cheap 304), or they keep running the previous release for hours.
+        header Cache-Control "no-cache"
         root * /srv
         try_files {path} /index.html
         file_server
