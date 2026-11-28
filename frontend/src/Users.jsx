@@ -136,6 +136,7 @@ export default function Users({id,labelledBy,onForbidden,superUser,signedInUsern
     <td data-label="Ban login">{showControls?<label className="um-switch" title={managed?undefined:'Only the super user can change an admin’s login access.'}><input type="checkbox" checked={!!u.banLogin} disabled={!managed||saving.has(u.id)} onChange={e=>toggleBan(u,e.target.checked)}
       aria-label={`Ban login for ${u.username}`}/><span aria-hidden="true"/>{saving.has(u.id)&&<small>Saving…</small>}</label>:u.banLogin?'Yes':'No'}</td>
     <td data-label="Actions"><span className="row-actions">
+     {/* Update: the super user for anyone, an admin for regular users only. Otherwise the read-only view. */}
      {showControls&&managed
       ?<button type="button" className="row-icon" title="Edit user" aria-label={`Edit ${u.username}`} onClick={()=>setSelected(u.id)}><Icon name="edit" size={17}/></button>
       :<button type="button" className="row-icon" title="View profile" aria-label={`View profile for ${u.username}`} onClick={()=>setSelected(u.id)}><Icon name="eye" size={17}/></button>}

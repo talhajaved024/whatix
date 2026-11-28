@@ -515,8 +515,19 @@ test('session ownership, explicit idle renewal and automatic logout', {timeout:1
   const peer=await (await register(first,'peer-admin')).json();
   assert.equal((await login(password,'peer-admin')).status,200);
   const operator=await login(password,'operator');
-  const rows=(await (await fetch(base+'/admin/users',{headers:adminHeaders})).json()).users;
-  for(const id of [peer.id,created.id,rows.find(row=>row.isSuperUser).id]){
+  // The super user's account is hidden from everyone else: not in an admin's directory,
+  // its counts or a search, and its profile cannot be opened. The super user sees it.
+  const adminView=await (await fetch(base+'/admin/users',{headers:adminHeaders})).json();
+  const rows=(await (await fetch(base+'/admin/users',{headers:{Cookie:first}})).json()).users;
+  const superRow=rows.find(row=>row.isSuperUser);
+  assert.ok(superRow);
+  assert.ok(!adminView.users.some(row=>row.isSuperUser || row.id===superRow.id));
+  assert.equal(adminView.users.length,rows.length-1);
+  assert.equal(adminView.summary.total,rows.length-1);
+  assert.equal((await (await fetch(base+'/admin/users?q='+encodeURIComponent(superRow.username),{headers:adminHeaders})).json()).users.filter(row=>row.id===superRow.id).length,0);
+  assert.equal((await fetch(base+'/admin/users/'+superRow.id,{headers:adminHeaders})).status,404);
+  assert.equal((await fetch(base+'/admin/users/'+superRow.id,{headers:{Cookie:first}})).status,200);
+  for(const id of [peer.id,created.id,superRow.id]){
     const target=rows.find(row=>row.id===id);
     const protectedPath=base+'/admin/users/'+id;
     assert.equal((await patchAsAdmin(protectedPath,{name:'Denied'})).status,403);

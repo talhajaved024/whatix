@@ -535,6 +535,9 @@ app.get('/api/admin/users',protectedRoute,adminAccess,async(req,res)=>{
     return res.status(400).json({error:'Invalid user filter'});
   try{
     let users=(await accounts.list()).map(userProfile);
+    // The super user's account is shown to the super user only: nobody else finds it
+    // in the directory, its counts or a search.
+    if(roleOf(req.auth.sub)!=='super_user')users=users.filter(u=>!u.isSuperUser);
     if(role==='user')users=users.filter(u=>!u.isAdmin && !u.isSuperUser);
     const summary={total:users.length,online:users.filter(u=>u.sessionId!=null).length};
     if(campaign!==undefined){
@@ -561,7 +564,8 @@ app.route('/api/admin/users/:id')
   .get(async(req,res)=>{
     try{
       const account=await accounts.get(req.accountId);
-      if(!account)return res.status(404).json({error:'User not found'});
+      // Hidden from everyone but the super user, like in the directory.
+      if(!account || (account.username===USERNAME && roleOf(req.auth.sub)!=='super_user'))return res.status(404).json({error:'User not found'});
       res.json(userProfile(account));
     }catch{res.status(503).json({error:'Account database unavailable'});}
   })
