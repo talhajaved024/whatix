@@ -946,3 +946,16 @@ body{overflow-x:clip}
 .assignee-chip.none{border-style:dashed;color:#6a7f75;background:#ffffffb3}
 .assignee-chip.none:hover,.assignee-chip.none[aria-expanded=true]{color:#145c48;border-style:solid}
 .assignee-none{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#eef3f0}
+/* Placeholder rows while a chat or contact list loads (components/ListLoader.jsx). */
+.list-loader{display:grid;gap:4px}
+.list-loader-row{display:flex;align-items:center;gap:10px;padding:10px 8px}
+.list-loader-row>i{width:42px;height:42px;flex:none;border-radius:10px}
+.list-loader-row>span{flex:1;display:grid;gap:8px;min-width:0}
+.list-loader-row b{height:10px;width:70%;border-radius:6px}
+.list-loader-row b+b{height:8px;width:45%}
+.list-loader-row:nth-child(3n) b{width:52%}.list-loader-row:nth-child(3n+1) b+b{width:62%}
+.list-loader-row :is(i,b){background:linear-gradient(90deg,#dbe8e1,#f2f8f4,#dbe8e1);background-size:200% 100%;animation:list-shimmer 1.3s ease-in-out infinite}
+.list-loader.compact .list-loader-row{padding:6px 8px}.list-loader.compact .list-loader-row>i{width:32px;height:32px}
+@keyframes list-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.list-loader-row :is(i,b){animation:none}}
+:root[data-perf=lite] .list-loader-row :is(i,b){animation:none}

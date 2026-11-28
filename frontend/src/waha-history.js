@@ -127,6 +127,8 @@ export function useWahaHistory(selectedId, contacts, includeGroups, onPhones) {
   const chatId = directory.has(selectedId) ? selectedId : [...directory.keys()].find(id =>
     contacts.has(id) && contacts.get(id)+"@c.us" === selectedId) || selectedId;
   const [overviewError,setOverviewError] = useState("");
+  // True until the chat list has arrived (or failed), for the list's loader.
+  const [loading,setLoading] = useState(true);
   const [messageError,setMessageError] = useState("");
   const [retry,setRetry] = useState(0);
   const [more,setMore] = useState(null);
@@ -191,7 +193,9 @@ export function useWahaHistory(selectedId, contacts, includeGroups, onPhones) {
       }
     }
     const load = includeGroups ? loadAll : loadAssigned;
-    load().catch(err=>{if (!controller.signal.aborted) setOverviewError(err.message);});
+    setLoading(true);
+    const done = () => { if (!controller.signal.aborted) setLoading(false); };
+    load().catch(err=>{if (!controller.signal.aborted) setOverviewError(err.message);}).finally(done);
     return () => controller.abort();
   }, [retry,includeGroups]);
   useEffect(() => {
@@ -207,6 +211,6 @@ export function useWahaHistory(selectedId, contacts, includeGroups, onPhones) {
     }).catch(err=>{if (!controller.signal.aborted) setMessageError(err.message);});
     return () => controller.abort();
   },[chatId,request,retry]);
-  return {messages,directory,activity,error:overviewError || messageError,retry:()=>setRetry(n=>n+1),
+  return {messages,directory,activity,loading,error:overviewError || messageError,retry:()=>setRetry(n=>n+1),
     older:more?.chatId === chatId && more ? ()=>setRequest(more) : null};
 }

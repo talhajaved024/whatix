@@ -2,6 +2,7 @@ import {inboxUrl,onInboxChange} from "./inbox.js";
 import {InboxSwitcher} from "./AddNumber.jsx";
 import DeleteChatDialog from "./components/DeleteChatDialog.jsx";
 import {LabelHighlights,ContactHighlight} from "./components/LabelHighlights.jsx";
+import ListLoader from "./components/ListLoader.jsx";
 import DeleteLabelDialog from "./components/DeleteLabelDialog.jsx";
 import {mentionParts,isSelfMention} from "./group-mentions.js";
 import ContactName from "./components/ContactName.jsx";
@@ -922,7 +923,8 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
             {!!eligible?.length&&!sending&&<MessageMenu key={latest.id} preview receipts={eligible} onDelete={receipts=>setDeleteTarget({receipts,broadcast})}/>}
             </div>;
           })}
-        </nav>{remote.error && <div className="error" role="status">{remote.error}<button type="button" onClick={remote.retry}>Retry history sync</button></div>}{storageError && <small className="error" role="alert">{storageError}</small>}
+          {remote.loading && !remote.directory.size && <ListLoader rows={threads.size ? 3 : 7} label="Loading chats…"/>}
+        </nav>{remote.error &&<div className="error" role="status">{remote.error}<button type="button" onClick={remote.retry}>Retry history sync</button></div>}{storageError && <small className="error" role="alert">{storageError}</small>}
       </aside>
       <section className="window" aria-label="Selected conversation">
         <header className="chat-head"><button type="button" className="chat-back" aria-label="Back to chats" disabled={sending} onClick={()=>openChat("")}><Icon name="back"/></button>{groupId ? <button type="button" className="group-icon" aria-label={"View members of " + title}

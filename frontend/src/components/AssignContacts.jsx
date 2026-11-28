@@ -3,6 +3,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {authorizedFetch} from '../auth.js';
 import {loadDirectContacts} from '../contacts-directory.js';
 import ContactAvatar from './ContactAvatar.jsx';
+import ListLoader from './ListLoader.jsx';
 import {campaignClient} from '../campaign-directory.js';
 import Dropdown from './Dropdown.jsx';
 // Assign one or more WhatsApp contacts of one campaign number to a single regular user. The API takes
@@ -109,7 +110,7 @@ export default function AssignContacts({users,campaign,initialUsername,handled,o
     <legend>Contacts{directory&&<small> · {contacts.length}</small>}</legend>
     {!username&&<small role="status">Choose a user first.</small>}
     {directoryError?<div className="assigned-error" role="alert"><small className="um-error">{directoryError}</small><button type="button" className="admin-refresh" onClick={()=>setReload(n=>n+1)}>Retry</button></div>
-    :directory===null?<small role="status" aria-busy="true">Loading WhatsApp contacts…</small>
+    :directory===null?<ListLoader compact rows={5} label="Loading WhatsApp contacts…"/>
     :<>
      <div className="an-tools">
       <label className="an-search"><span className="idle-sr">Search contacts</span>
