@@ -105,7 +105,8 @@ export function campaignStore(db){
       const at=now();
       const id=kept?kept.ID:(await s.run('INSERT INTO campaign_contacts(grant_id,phone_number,assigned_at,assigned_by) VALUES(?,?,?,?)',[grant,phoneNumber,at,actor])).id;
       changed();
-      return {id,phoneNumber,username,assignedAt:kept?kept.assigned_at:at,removedFrom:previous};
+      // fresh: the user did not have this customer before (told to the user, not sent to the browser).
+      return {id,phoneNumber,username,assignedAt:kept?kept.assigned_at:at,removedFrom:previous,fresh:!kept};
     }),
     // Removing a grant also removes its labels and assigned customers.
     revoke:(name,phone,userId)=>db.use(async s=>changed((await s.run('DELETE FROM campaign_grants WHERE session=? AND campaign_phone=? AND user_id=?',[name,phone,userId])).changes)),
@@ -139,8 +140,15 @@ export function campaignStore(db){
 
 // Mounted inside each inbox router. identity({fresh}) resolves the inbox's
 // current campaign phone; writes name the phone the admin was looking at.
-export function campaignRoutes({store,session,primary,identity,adminAccess,readLabels}){
+// onAssigned({username,phoneNumber,campaignPhone,actor}) is told of every customer
+// newly assigned to a user (actor: the admin's username), after it is saved.
+export function campaignRoutes({store,session,primary,identity,adminAccess,readLabels,onAssigned}){
   const router=Router();
+  // Telling the user must never undo or fail the assignment itself.
+  const assigned=(req,phone,contact)=>{
+    try{Promise.resolve(onAssigned?.({username:contact.username,phoneNumber:contact.phoneNumber,campaignPhone:phone,actor:req.auth.sub})).catch(()=>{});}
+    catch{ /* the assignment is saved */ }
+  };
   const run=fn=>async(req,res)=>{
     try{
       const phone=await identity({fresh:req.method!=='GET'});
@@ -183,12 +191,16 @@ export function campaignRoutes({store,session,primary,identity,adminAccess,readL
   // Body {phoneNumber, username}: the customer ends up assigned to that user
   // only. Returns {id, phoneNumber, username, assignedAt, removedFrom:[usernames]}.
   router.put('/campaign-contacts/reassign',adminAccess,run(async(req,res,phone)=>{
-    res.json(await store.reassign(session,phone,req.body?.phoneNumber,req.body?.username,req.userId));
+    const {fresh,...moved}=await store.reassign(session,phone,req.body?.phoneNumber,req.body?.username,req.userId);
+    if(fresh)assigned(req,phone,moved);
+    res.json(moved);
   }));
   for(const [method,path] of [['post','/campaign-contacts'],['patch','/campaign-contacts/:id'],['delete','/campaign-contacts/:id']]){
     router[method](path,adminAccess,run(async(req,res,phone)=>{
       const contact=await store.contact(session,phone,req.method,req.params.id,req.body||{},req.userId);
       if(!contact)return res.sendStatus(204);
+      // A new assignment, or an edit (which counts as a fresh assignment by this admin).
+      assigned(req,phone,contact);
       res.status(method==='post'?201:200).json(contact);
     }));
   }

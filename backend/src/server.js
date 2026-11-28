@@ -5,6 +5,7 @@ import {campaignAccess,AVAILABILITY_MAX_AGE_MS} from './campaign-access.js';
 import { mountNumberManagement, dashboardUpgrade, validInboxName } from './numbers.js';
 import { upstreamHub } from './upstream-hub.js';
 import { chatList } from './chat-list.js';
+import { assignmentNotices } from './assignment-notices.js';
 import { requirementStore, requirementRange, senderPhone, receivedDate } from './offline-requirements.js';
 import 'dotenv/config';
 import { dirname, join, resolve } from 'node:path';
@@ -718,6 +719,30 @@ const directory=mountNumberManagement(app,{protectedRoute,adminAccess,base:WAHA,
   // A number deleted on the Add Number tab is not restarted with the backend.
   onSessionDeleted:name=>{inboxRegistry.drop(name).catch(()=>{});}});
 
+// "A customer was assigned to you" notifications (assignment-notices.js). They
+// belong to the user, not to one WhatsApp number, so every open stream of that
+// user carries them whichever number it shows.
+const notices=assignmentNotices(records(db,'assignment-notices'));
+// A user's notices that still hold: the customer is still assigned to them on
+// that number. One whose assignment was since edited, moved, removed or whose
+// campaign was taken away is dropped here, however that happened.
+async function currentNotices(username,userId){
+  const rows=await notices.list(username),grants=new Map(),kept=[];
+  for(const row of rows){
+    const key=JSON.stringify([row.session,row.campaignPhone]);
+    if(!grants.has(key))grants.set(key,new Set((await campaignStoreDb.get(row.session,row.campaignPhone,userId))?.contacts.map(c=>String(c.phoneNumber))));
+    if(grants.get(key).has(row.phoneNumber))kept.push(row);
+    else notices.dismiss(username,row.id).catch(()=>{});
+  }
+  return kept;
+}
+// The user opened or dismissed one notice (or, without an id, all of them).
+app.delete(['/api/assignment-notices','/api/assignment-notices/:id'],protectedRoute,async(req,res)=>{
+  const id=req.params.id;
+  if(id!==undefined && !/^[0-9a-f-]{36}$/.test(id))return res.status(400).json({error:'Invalid notification'});
+  try{await notices.dismiss(req.auth.sub,id);res.sendStatus(204);}
+  catch{res.status(503).json({error:'Could not update notifications'});}
+});
 app.get('/api/my-campaigns',protectedRoute,async(req,res)=>{
   try{
     const rows=await directory();
@@ -830,7 +855,10 @@ async function createInboxRouter(SESSION){
   }
   const access=campaignAccess({session:SESSION,base:WAHA,headers:wahaHeaders,store:campaignStoreDb,requirements,primary,secret:ACCESS_SECRET,sent,phones});
   app.use('/api',protectedRoute,(req,res,next)=>roleOf(req.auth.sub)==='user'?access.gate(req,res,next):next());
-  app.use('/api',campaignRoutes({store:campaignStoreDb,session:SESSION,primary,identity:access.identity,adminAccess,readLabels:access.readLabels}));
+  app.use('/api',campaignRoutes({store:campaignStoreDb,session:SESSION,primary,identity:access.identity,adminAccess,readLabels:access.readLabels,
+    // The assigned user is told which customer, on which number, and by whom.
+    onAssigned:({username,phoneNumber,campaignPhone,actor})=>notices.add(username,{session:SESSION,campaignPhone,phoneNumber,
+      by:{username:actor,name:sessions.get(actor)?.name||actor,role:roleOf(actor)}})}));
   app.get('/api/inbox-availability',async(req,res)=>{
     try{
       // The browser polls this every 5 s to notice a re-paired number or lost access. The
@@ -1156,6 +1184,10 @@ async function createInboxRouter(SESSION){
       if(res.destroyed || res.writableEnded)return;
       res.write('event: '+name+'\ndata: '+JSON.stringify(data)+'\n\n');
     });
+    // Customers assigned to this user: those still unopened first, then live.
+    const tell=(name,data)=>{if(!res.destroyed && !res.writableEnded)res.write('event: '+name+'\ndata: '+JSON.stringify(data)+'\n\n');};
+    currentNotices(req.auth.sub,req.userId).then(rows=>tell('assignment.snapshot',rows)).catch(()=>{});
+    const unsubscribeNotices=notices.subscribe(req.auth.sub,tell);
     const heartbeat=setInterval(()=>{if(!res.destroyed)res.write(': heartbeat\n\n');},20000);
     const onEvent=async event=>{
       if(event?.session===SESSION && event.event==='session.status'){
@@ -1204,6 +1236,7 @@ async function createInboxRouter(SESSION){
       if(!mine.size && userStreams.get(req.userId)===mine)userStreams.delete(req.userId);
       unsubscribeCalls?.();
       unsubscribeAlerts();
+      unsubscribeNotices();
       clearInterval(heartbeat);
       clearTimeout(expires);
       unsubscribe();

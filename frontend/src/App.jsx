@@ -1,4 +1,4 @@
-import {inboxUrl,onInboxChange} from "./inbox.js";
+import {inboxUrl,onInboxChange,openChatIn} from "./inbox.js";
 import {InboxSwitcher} from "./AddNumber.jsx";
 import DeleteChatDialog from "./components/DeleteChatDialog.jsx";
 import {LabelHighlights,ContactHighlight} from "./components/LabelHighlights.jsx";
@@ -266,6 +266,12 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   const [calls, dispatchCall] = useIncomingCalls();
   // Clients who got a holding reply and are still waiting (newest first).
   const [waiting, setWaiting] = useState([]);
+  // Customers an admin assigned to this user, until opened or dismissed (newest first).
+  const [assignments, setAssignments] = useState([]);
+  const dismissAssignment = useCallback(id => {
+    setAssignments(previous => previous.filter(item => item.id !== id));
+    authorizedFetch("/api/assignment-notices/" + encodeURIComponent(id), {method:"DELETE"}).catch(() => {});
+  }, []);
   const [newChatOpen,setNewChatOpen] = useState(false);
   const [message,setMessage] = useState("");
   const [attachments,setAttachments] = useState([]);
@@ -454,6 +460,19 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     });
     stream.addEventListener("client.attended", event => {
       try { const {id} = JSON.parse(event.data); setWaiting(previous => previous.filter(item => item.id !== id)); } catch { /* malformed */ }
+    });
+    // Each new connection starts with the full list, so reconnects and other tabs stay in sync.
+    stream.addEventListener("assignment.snapshot", event => {
+      try { const rows = JSON.parse(event.data); if (Array.isArray(rows)) setAssignments(rows); } catch { /* malformed: keep the current list */ }
+    });
+    stream.addEventListener("assignment.added", event => {
+      try {
+        const notice = JSON.parse(event.data);
+        setAssignments(previous => [notice, ...previous.filter(item => item.id !== notice.id && !(item.session === notice.session && item.phoneNumber === notice.phoneNumber))]);
+      } catch { /* malformed */ }
+    });
+    stream.addEventListener("assignment.removed", event => {
+      try { const {id,all} = JSON.parse(event.data); setAssignments(previous => all ? [] : previous.filter(item => item.id !== id)); } catch { /* malformed */ }
     });
     stream.addEventListener("reaction", event => rememberReaction(JSON.parse(event.data)));
     stream.addEventListener("receipt", event => {
@@ -877,6 +896,13 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     <Constellation/>
     <header className="mast"><div className="brand"><img className="logo" src="/whatix.svg" alt=""/>Whatix!</div>{nav}<div className="mast-end">{role !== "user" && <SessionPill name={sessionName} number={sessionLine}/>}<WaitingAlerts alerts={waiting} onDismiss={id => setWaiting(previous => previous.filter(item => item.id !== id))}
       onOpen={alert => { onShowChat?.(); openChat(alert.openKey); markAttended(alert.chatId).catch(() => {}); }}
+      assignmentAlerts={assignments} onDismissAssignment={dismissAssignment}
+      onOpenAssignment={notice => {
+        dismissAssignment(notice.id);
+        // The customer may be on another of this user's WhatsApp numbers.
+        if (notice.session === SESSION) { onShowChat?.(); openChat(notice.phoneNumber); }
+        else { openChatIn(notice.session, notice.phoneNumber); onShowChat?.(); }
+      }}
       chatAlerts={teamChat.alerts} onOpenChat={alert => teamChat.open(alert.contactId)} onDismissChat={alert => teamChat.markRead(alert.contactId)}/>{onLogout && <button type="button" className="auth-logout" onClick={onLogout}>Log out</button>}{(fullName || username) && <AccountMenu name={fullName || username}/>}</div></header>
     <IncomingCalls calls={calls} dispatch={dispatchCall}/>
     <main id="panel-chat" role={nav ? "tabpanel" : undefined} aria-labelledby={nav ? "tab-chat" : undefined} hidden={!!panel} className={view ? "has-chat" : undefined}>

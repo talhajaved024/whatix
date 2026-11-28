@@ -959,3 +959,5 @@ body{overflow-x:clip}
 @keyframes list-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 @media(prefers-reduced-motion:reduce){.list-loader-row :is(i,b){animation:none}}
 :root[data-perf=lite] .list-loader-row :is(i,b){animation:none}
+/* Who assigned a customer, in the bell (components/WaitingAlerts.jsx). */
+.waiting-role{margin:0 2px 0 6px;padding:1px 7px;font-size:11px;font-weight:700;font-style:normal;letter-spacing:.03em;color:#174d3d;background:#d3f0de;border-radius:999px;vertical-align:1px}

@@ -15,11 +15,14 @@ function ago(since, now) {
 // answers that chat; Dismiss only hides it in this browser.
 // Team chat: unread messages from app users show above the waiting clients as
 // "<name> sent you a message." Opening one opens that chat window.
-export default function WaitingAlerts({ alerts, onOpen, onDismiss, chatAlerts = [], onOpenChat, onDismissChat }) {
+// Assignments: "<admin> assigned +92… to you", kept by the server until this
+// user opens or dismisses it. Opening one opens that customer's chat.
+const roles = {super_user:"Super user", admin:"Admin"};
+export default function WaitingAlerts({ alerts, onOpen, onDismiss, chatAlerts = [], onOpenChat, onDismissChat, assignmentAlerts = [], onOpenAssignment, onDismissAssignment }) {
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const box = useRef(null);
-  const count = alerts.length + chatAlerts.length;
+  const count = alerts.length + chatAlerts.length + assignmentAlerts.length;
   useEffect(() => {
     if (!open) return;
     setNow(Date.now());
@@ -36,7 +39,11 @@ export default function WaitingAlerts({ alerts, onOpen, onDismiss, chatAlerts = 
   }, [open]);
   const latest = alerts[0];
   const latestChat = chatAlerts[0];
-  const announcement = latestChat ? latestChat.name + " sent you a message." : latest ? (latest.phoneNumber || latest.chatId) + " is waiting for your reply." : "";
+  const latestAssignment = assignmentAlerts[0];
+  // The newest of the three kinds is what a screen reader hears.
+  const announcement = latestAssignment && latestAssignment.at >= Math.max(latest?.since || 0, latestChat?.since || 0)
+    ? latestAssignment.assignedBy.name + " assigned +" + latestAssignment.phoneNumber + " to you."
+    : latestChat ? latestChat.name + " sent you a message." : latest ? (latest.phoneNumber || latest.chatId) + " is waiting for your reply." : "";
   return <div className="waiting-alerts" ref={box}>
     <button type="button" className={"waiting-bell" + (count ? " has-alerts" : "")} aria-haspopup="dialog" aria-expanded={open}
       aria-label={count ? "Notifications, " + count + " unread" : "Notifications"}
@@ -54,6 +61,15 @@ export default function WaitingAlerts({ alerts, onOpen, onDismiss, chatAlerts = 
             <time dateTime={new Date(alert.since).toISOString()}>{ago(alert.since, now)}</time>
           </button>
           <button type="button" className="waiting-dismiss" aria-label={"Mark message from " + alert.name + " as read"} onClick={() => onDismissChat?.(alert)}>
+            <Icon name="close" />
+          </button>
+        </li>)}
+        {assignmentAlerts.map(notice => <li key={notice.id} className="waiting-assignment">
+          <button type="button" className="waiting-item" onClick={() => { setOpen(false); onOpenAssignment?.(notice); }}>
+            <span><strong>{notice.assignedBy.name}</strong>{roles[notice.assignedBy.role] && <em className="waiting-role">{roles[notice.assignedBy.role]}</em>} assigned <strong><ContactHighlight id={notice.phoneNumber}>+{notice.phoneNumber}</ContactHighlight></strong> to you.</span>
+            <time dateTime={new Date(notice.at).toISOString()}>{ago(notice.at, now)} · on +{notice.campaignPhone}</time>
+          </button>
+          <button type="button" className="waiting-dismiss" aria-label={"Dismiss assignment of +" + notice.phoneNumber} onClick={() => onDismissAssignment?.(notice.id)}>
             <Icon name="close" />
           </button>
         </li>)}
