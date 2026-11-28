@@ -961,3 +961,16 @@ body{overflow-x:clip}
 :root[data-perf=lite] .list-loader-row :is(i,b){animation:none}
 /* Who assigned a customer, in the bell (components/WaitingAlerts.jsx). */
 .waiting-role{margin:0 2px 0 6px;padding:1px 7px;font-size:11px;font-weight:700;font-style:normal;letter-spacing:.03em;color:#174d3d;background:#d3f0de;border-radius:999px;vertical-align:1px}
+/* A grouped entry in the bell ("assigned 30 customers to you") and its opened-out numbers. */
+.waiting-panel li.waiting-group{flex-direction:column;align-items:stretch;gap:0}
+.waiting-group-head{display:flex;align-items:stretch;gap:4px}
+.waiting-panel .waiting-group-list{margin:0 0 6px 10px;padding:0 0 0 8px;border-left:2px solid #d3f0de;max-height:190px;overflow:auto}
+.waiting-group-list .waiting-item{padding:5px 10px;font-size:14px}
+/* "New" on a customer assigned to this user whose chat they have not opened yet. */
+.row-new{flex:none;margin-left:8px;padding:1px 8px;font-size:11px;font-weight:700;font-style:normal;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:#167456;border-radius:999px;vertical-align:1px}
+.assigned-list .chat-row .row-new{margin-left:auto}
+/* The pencil beside a chat title: a regular user naming the customer for themselves. */
+.rename-button{display:inline-grid;place-items:center;width:26px;height:26px;margin-left:8px;padding:0;color:#4d6a62;background:none;border:0;border-radius:8px;vertical-align:middle;cursor:pointer}
+.rename-button:hover{color:#167456;background:#e0f1e6}
+.rename-button:focus-visible{outline:2px solid var(--a-accent);outline-offset:1px}
+.rename-contact .idle-actions{flex-wrap:wrap}

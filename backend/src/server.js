@@ -6,6 +6,7 @@ import { mountNumberManagement, dashboardUpgrade, validInboxName } from './numbe
 import { upstreamHub } from './upstream-hub.js';
 import { chatList } from './chat-list.js';
 import { assignmentNotices } from './assignment-notices.js';
+import { contactAliases } from './contact-aliases.js';
 import { requirementStore, requirementRange, senderPhone, receivedDate } from './offline-requirements.js';
 import 'dotenv/config';
 import { dirname, join, resolve } from 'node:path';
@@ -391,6 +392,12 @@ app.patch('/api/admin/offline-requirements/:id/assignees',protectedRoute,adminAc
     const result=await requirements.setAssignees(id,userIds,expectedUserIds,users);
     if(result.status===404)return res.status(404).json({error:'Requirement not found'});
     if(result.status===409)return res.status(409).json({error:'Assignments changed. Refresh before saving.'});
+    // Users added to this requirement just now are told (those already on it are not).
+    for(const userId of userIds){
+      const user=users.get(userId);
+      if(user && !existing.assignedUserIds.includes(userId))notices.add(user.username,{type:'requirement.assigned',session:receivedSessionOf(existing),
+        campaignPhone:eligible.phone,requirementId:id,name:existing.name,phoneNumber:existing.phone,by:assigner(req.auth.sub)}).catch(()=>{});
+    }
     res.json({requirement:requirementProfile(result.requirement,users,await mainNumber())});
   }catch{res.status(503).json({error:'Could not save requirement assignments'});}
 });
@@ -723,25 +730,61 @@ const directory=mountNumberManagement(app,{protectedRoute,adminAccess,base:WAHA,
 // belong to the user, not to one WhatsApp number, so every open stream of that
 // user carries them whichever number it shows.
 const notices=assignmentNotices(records(db,'assignment-notices'));
+// Who assigned it, as the assigned user will read it (actor: the admin's username).
+const assigner=actor=>({username:actor,name:sessions.get(actor)?.name||actor,role:roleOf(actor)});
 // A user's notices that still hold: the customer is still assigned to them on
-// that number. One whose assignment was since edited, moved, removed or whose
+// that number, they still hold the number, or they are still on the
+// requirement. One whose assignment was since edited, moved, removed or whose
 // campaign was taken away is dropped here, however that happened.
 async function currentNotices(username,userId){
-  const rows=await notices.list(username),grants=new Map(),kept=[];
+  const rows=await notices.list(username),grants=new Map(),kept=[],stale=[];
   for(const row of rows){
-    const key=JSON.stringify([row.session,row.campaignPhone]);
-    if(!grants.has(key))grants.set(key,new Set((await campaignStoreDb.get(row.session,row.campaignPhone,userId))?.contacts.map(c=>String(c.phoneNumber))));
-    if(grants.get(key).has(row.phoneNumber))kept.push(row);
-    else notices.dismiss(username,row.id).catch(()=>{});
+    let holds;
+    if(row.type==='requirement.assigned')holds=!!(await requirements.get(row.requirementId))?.assignedUserIds.includes(userId);
+    else{
+      const key=JSON.stringify([row.session,row.campaignPhone]);
+      if(!grants.has(key)){
+        const grant=await campaignStoreDb.get(row.session,row.campaignPhone,userId);
+        grants.set(key,grant && new Set(grant.contacts.map(c=>String(c.phoneNumber))));
+      }
+      const customers=grants.get(key);
+      holds=row.type==='number.assigned'?!!customers:!!customers?.has(row.phoneNumber);
+    }
+    (holds?kept:stale).push(row);
   }
+  if(stale.length)notices.remove(username,stale.map(row=>row.id)).catch(()=>{});
   return kept;
 }
-// The user opened or dismissed one notice (or, without an id, all of them).
+// The user opened or dismissed notices: one (/:id), several together (body
+// {ids}, a grouped entry), or all of theirs (neither).
+const noticeId=id=>typeof id==='string' && /^[0-9a-f-]{36}$/.test(id);
 app.delete(['/api/assignment-notices','/api/assignment-notices/:id'],protectedRoute,async(req,res)=>{
-  const id=req.params.id;
-  if(id!==undefined && !/^[0-9a-f-]{36}$/.test(id))return res.status(400).json({error:'Invalid notification'});
-  try{await notices.dismiss(req.auth.sub,id);res.sendStatus(204);}
+  const ids=req.params.id===undefined?req.body?.ids:undefined;
+  const target=req.params.id??ids;
+  if(target!==undefined && !(Array.isArray(target)?target.length>0 && target.length<=200 && target.every(noticeId):noticeId(target)))
+    return res.status(400).json({error:'Invalid notification'});
+  try{await notices.dismiss(req.auth.sub,target);res.sendStatus(204);}
   catch{res.status(503).json({error:'Could not update notifications'});}
+});
+// The user opened a customer's chat: its "New" tag (and bell entry) is done with.
+app.post('/api/assignment-notices/opened',protectedRoute,async(req,res)=>{
+  const {session,phoneNumber}=req.body??{};
+  if(typeof session!=='string' || !validInboxName(session) || typeof phoneNumber!=='string' || !/^[1-9]\d{0,14}$/.test(phoneNumber))
+    return res.status(400).json({error:'Expected a WhatsApp number and a customer phone number'});
+  try{await notices.opened(req.auth.sub,session,phoneNumber);res.sendStatus(204);}
+  catch{res.status(503).json({error:'Could not update notifications'});}
+});
+// A user's own names for customers (contact-aliases.js): private to that user.
+const aliases=contactAliases(records(db,'contact-aliases'));
+app.get('/api/contact-aliases',protectedRoute,async(req,res)=>{
+  res.set('Cache-Control','no-store');
+  try{res.json({aliases:await aliases.list(req.auth.sub)});}
+  catch{res.status(503).json({error:'Your contact names could not be loaded'});}
+});
+// Body {name}: the user's name for this customer; an empty name removes it.
+app.put('/api/contact-aliases/:phone',protectedRoute,async(req,res)=>{
+  try{res.json({aliases:await aliases.set(req.auth.sub,req.params.phone,req.body?.name)});}
+  catch(err){res.status(err.status||503).json({error:err.status?err.message:'Could not save the name'});}
 });
 app.get('/api/my-campaigns',protectedRoute,async(req,res)=>{
   try{
@@ -857,8 +900,9 @@ async function createInboxRouter(SESSION){
   app.use('/api',protectedRoute,(req,res,next)=>roleOf(req.auth.sub)==='user'?access.gate(req,res,next):next());
   app.use('/api',campaignRoutes({store:campaignStoreDb,session:SESSION,primary,identity:access.identity,adminAccess,readLabels:access.readLabels,
     // The assigned user is told which customer, on which number, and by whom.
-    onAssigned:({username,phoneNumber,campaignPhone,actor})=>notices.add(username,{session:SESSION,campaignPhone,phoneNumber,
-      by:{username:actor,name:sessions.get(actor)?.name||actor,role:roleOf(actor)}})}));
+    onAssigned:({username,phoneNumber,campaignPhone,actor})=>notices.add(username,{session:SESSION,campaignPhone,phoneNumber,by:assigner(actor)}),
+    // A user given this WhatsApp number (Assign WA Num) is told as well.
+    onGranted:({username,campaignPhone,actor})=>notices.add(username,{type:'number.assigned',session:SESSION,campaignPhone,by:assigner(actor)})}));
   app.get('/api/inbox-availability',async(req,res)=>{
     try{
       // The browser polls this every 5 s to notice a re-paired number or lost access. The

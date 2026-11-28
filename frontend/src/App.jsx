@@ -1,8 +1,10 @@
-import {inboxUrl,onInboxChange,openChatIn} from "./inbox.js";
+import {inboxUrl,onInboxChange,openChatIn,openInbox} from "./inbox.js";
 import {InboxSwitcher} from "./AddNumber.jsx";
 import DeleteChatDialog from "./components/DeleteChatDialog.jsx";
 import {LabelHighlights,ContactHighlight} from "./components/LabelHighlights.jsx";
 import ListLoader from "./components/ListLoader.jsx";
+import RenameContact from "./components/RenameContact.jsx";
+import {AliasContext,useContactAliases} from "./contact-aliases.js";
 import DeleteLabelDialog from "./components/DeleteLabelDialog.jsx";
 import {mentionParts,isSelfMention} from "./group-mentions.js";
 import ContactName from "./components/ContactName.jsx";
@@ -27,7 +29,7 @@ import { mergeHistory, useWahaHistory } from "./waha-history.js";
 import { businessLabels, labelAudience, labelColor, labelRecipients } from "./business-labels.js";
 import Dropdown from "./components/Dropdown.jsx";
 import AssignedList from "./components/AssignedList.jsx";
-import WaitingAlerts from "./components/WaitingAlerts.jsx";
+import WaitingAlerts, {noticeSubject} from "./components/WaitingAlerts.jsx";
 const ManageLabels = lazyComponent(() => import("./components/ManageLabels.jsx"));
 import { lazyComponent } from "./lazy.js";
 import { applyHistoryChange, chatDeletionTimes, cleanSavedHistory, loadHistory, save, saveViewed } from "./history.js";
@@ -266,11 +268,19 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   const [calls, dispatchCall] = useIncomingCalls();
   // Clients who got a holding reply and are still waiting (newest first).
   const [waiting, setWaiting] = useState([]);
-  // Customers an admin assigned to this user, until opened or dismissed (newest first).
+  // What an admin assigned to this user (customers, a WhatsApp number, a
+  // requirement), until opened or dismissed (newest first).
   const [assignments, setAssignments] = useState([]);
-  const dismissAssignment = useCallback(id => {
-    setAssignments(previous => previous.filter(item => item.id !== id));
-    authorizedFetch("/api/assignment-notices/" + encodeURIComponent(id), {method:"DELETE"}).catch(() => {});
+  // Dismissed in the bell: one notice, or several together (a grouped entry).
+  // A customer's notice only leaves the bell; it stays as the chat's "New" tag
+  // until that chat is opened. A WhatsApp number's notice is removed.
+  const dismissAssignment = useCallback(target => {
+    const ids = Array.isArray(target) ? target : [target];
+    if (!ids.length) return;
+    setAssignments(previous => previous.flatMap(item => !ids.includes(item.id) ? [item] : item.type === "number.assigned" ? [] : [{...item,hidden:true}]));
+    const request = ids.length === 1 ? authorizedFetch("/api/assignment-notices/" + encodeURIComponent(ids[0]), {method:"DELETE"})
+      : authorizedFetch("/api/assignment-notices", {method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});
+    request.catch(() => {});
   }, []);
   const [newChatOpen,setNewChatOpen] = useState(false);
   const [message,setMessage] = useState("");
@@ -468,11 +478,19 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
     stream.addEventListener("assignment.added", event => {
       try {
         const notice = JSON.parse(event.data);
-        setAssignments(previous => [notice, ...previous.filter(item => item.id !== notice.id && !(item.session === notice.session && item.phoneNumber === notice.phoneNumber))]);
+        // The same thing assigned again replaces its earlier notice, as on the server.
+        setAssignments(previous => [notice, ...previous.filter(item => item.id !== notice.id && noticeSubject(item) !== noticeSubject(notice))]);
       } catch { /* malformed */ }
     });
+    // Dismissed in the bell (here or in another tab): out of the bell, still "New" on the chat.
+    stream.addEventListener("assignment.hidden", event => {
+      try { const {ids} = JSON.parse(event.data); setAssignments(previous => previous.map(item => ids.includes(item.id) ? {...item,hidden:true} : item)); } catch { /* malformed */ }
+    });
     stream.addEventListener("assignment.removed", event => {
-      try { const {id,all} = JSON.parse(event.data); setAssignments(previous => all ? [] : previous.filter(item => item.id !== id)); } catch { /* malformed */ }
+      try {
+        const {id,ids,all} = JSON.parse(event.data), gone = Array.isArray(ids) ? ids : [id];
+        setAssignments(previous => all ? [] : previous.filter(item => !gone.includes(item.id)));
+      } catch { /* malformed */ }
     });
     stream.addEventListener("reaction", event => rememberReaction(JSON.parse(event.data)));
     stream.addEventListener("receipt", event => {
@@ -688,6 +706,22 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   }
   const title = labelId ? labels?.find(item => item.id === labelId)?.name || "Campaign"
     : isBroadcast ? "Broadcast" : numbers.length ? label(numbers[0]) : "New chat";
+  // Assignments still to show in the bell, and the customers of this WhatsApp
+  // number whose chat the user has not opened since they were assigned ("New").
+  const bellAssignments = useMemo(() => assignments.filter(item => !item.hidden), [assignments]);
+  const newCustomers = useMemo(() => new Set(assignments.filter(item => item.type !== "number.assigned" && item.session === SESSION)
+    .map(item => item.phoneNumber)), [assignments]);
+  // Opening a newly assigned customer's chat (from the list, the bell or
+  // anywhere else) ends its "New" tag, here and on the user's other devices.
+  useEffect(() => {
+    if (panel || !newCustomers.has(activeKey)) return;
+    setAssignments(previous => previous.filter(item => !(item.type !== "number.assigned" && item.session === SESSION && item.phoneNumber === activeKey)));
+    authorizedFetch("/api/assignment-notices/opened", {method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session:SESSION,phoneNumber:activeKey})}).catch(() => {});
+  }, [activeKey,newCustomers,panel]);
+  // A regular user's own names for customers; null for admins (not offered to them).
+  const aliases = useContactAliases(restricted);
+  const [renaming,setRenaming] = useState("");
   const drafts = useRef(new Map());
   function openChat(next) {
     if (lock.current) return;
@@ -892,15 +926,17 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
   </article>{showJob && <BroadcastProgress item={item}/>}</Fragment>;
   }
 
-  return <LabelHighlights labels={labels} contacts={contacts}>
+  return <AliasContext.Provider value={aliases}><LabelHighlights labels={labels} contacts={contacts}>
     <Constellation/>
     <header className="mast"><div className="brand"><img className="logo" src="/whatix.svg" alt=""/>Whatix!</div>{nav}<div className="mast-end">{role !== "user" && <SessionPill name={sessionName} number={sessionLine}/>}<WaitingAlerts alerts={waiting} onDismiss={id => setWaiting(previous => previous.filter(item => item.id !== id))}
       onOpen={alert => { onShowChat?.(); openChat(alert.openKey); markAttended(alert.chatId).catch(() => {}); }}
-      assignmentAlerts={assignments} onDismissAssignment={dismissAssignment}
+      assignmentAlerts={bellAssignments} onDismissAssignment={dismissAssignment}
       onOpenAssignment={notice => {
         dismissAssignment(notice.id);
-        // The customer may be on another of this user's WhatsApp numbers.
-        if (notice.session === SESSION) { onShowChat?.(); openChat(notice.phoneNumber); }
+        // A WhatsApp number given to this user: open that number's inbox.
+        if (notice.type === "number.assigned") { if (notice.session !== SESSION) openInbox(notice.session); onShowChat?.(); }
+        // A customer (or a requirement's customer), possibly on another of this user's numbers.
+        else if (notice.session === SESSION) { onShowChat?.(); openChat(notice.phoneNumber); }
         else { openChatIn(notice.session, notice.phoneNumber); onShowChat?.(); }
       }}
       chatAlerts={teamChat.alerts} onOpenChat={alert => teamChat.open(alert.contactId)} onDismissChat={alert => teamChat.markRead(alert.contactId)}/>{onLogout && <button type="button" className="auth-logout" onClick={onLogout}>Log out</button>}{(fullName || username) && <AccountMenu name={fullName || username}/>}</div></header>
@@ -926,7 +962,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
             : !labels.length ? <small role="status">Create a campaign (a WhatsApp Business label), add your chats to it, then refresh here.</small>
             : filterLabel && <small role="status">{!filterLoaded ? "Loading recipients…" : labelReach}</small>}
         </div>
-        {restricted && <AssignedList onOpen={openChat} onLoaded={setAssignedNumbers} current={key} disabled={sending}/>}
+        {restricted && <AssignedList onOpen={openChat} onLoaded={setAssignedNumbers} current={key} disabled={sending} fresh={newCustomers}/>}
         <nav className="chat-list" aria-label="Saved conversations">
           {[...threads.entries()].filter(([id])=>!id.startsWith("label:") && visibleToUser(id) && (!filterLabel || labelMembers.has(id))).sort((a,b)=>lastActive(b)-lastActive(a)).map(([id,items])=>{
             const members = id.split(",");
@@ -940,7 +976,7 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
               disabled={sending} onClick={()=>openChat(id)}>
               <ContactAvatar broadcast={broadcast || isGroupChat(id)} contactId={photoIds.get(id)??id}>
                 {unread > 0 && <span className="unread-count" aria-label={unread+" unread "+(unread===1 ? "message" : "messages")}>{unread}</span>}</ContactAvatar>
-              <span className="row-copy"><strong>{broadcast ? "Broadcast · "+members.length : isGroupChat(id) ? label(id) : directLabel(id)}</strong>
+              <span className="row-copy"><strong>{broadcast ? "Broadcast · "+members.length : isGroupChat(id) ? label(id) : directLabel(id)}{newCustomers.has(id) && <em className="row-new">New</em>}</strong>
                 {broadcast && <span title={members.map(label).join(", ")}>{highlightedRecipients(members)}</span>}
                 <small>{latest?.display==='revoked'?deletionPlaceholder:latest?.display==='checking'?'Checking message…':latest ? latest.text || (latest.filename || (latest.kind==="video" ? "Video" : "Photo")) : "Open conversation"}</small></span>
             </button>
@@ -959,7 +995,9 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
           {groupId && detailsFor === groupId && <GroupDetails title={title}
             members={roster?.groupId === groupId ? roster.members : null} error={roster?.groupId === groupId && roster.error}
             memberLabel={memberLabel} onRetry={() => refreshGroup(n => n+1)} onClose={() => setDetailsFor("")}/>}
-          <div><h1>{activeKey && !isBroadcast && !groupId ? directLabel(activeKey) : title}</h1><small>{isBroadcast && numbers.length > 0 && <>{highlightedRecipients(numbers)} · </>}<span role="status">{receiveStatus}</span></small></div>
+          <div><h1>{activeKey && !isBroadcast && !groupId ? directLabel(activeKey) : title}{aliases && /^\d+$/.test(activeKey) &&
+            <button type="button" className="rename-button" aria-label={(aliases.has(activeKey) ? "Rename" : "Name") + " this contact (only you see it)"} title="Rename for yourself"
+              onClick={() => setRenaming(activeKey)}><Icon name="edit" size={15}/></button>}</h1><small>{isBroadcast && numbers.length > 0 && <>{highlightedRecipients(numbers)} · </>}<span role="status">{receiveStatus}</span></small></div>
           {activeKey && <label className="read-preference"><input type="checkbox" checked={allowRead}
             onChange={e=>changeReadPreference(e.target.checked)}/> Allow messages to be read</label>}
         </header>
@@ -1033,5 +1071,6 @@ export default function App({onLogout,nav,panel,role,username,fullName,onShowCha
         openChat("");drafts.current.delete("label:"+labelId);refreshLabels(n=>n+1);
       }}/>}
     {deleteTarget&&<DeleteMessageDialog {...deleteTarget} states={deletion.states} remove={deletion.remove} onClose={()=>setDeleteTarget(null)}/>}
-  </LabelHighlights>;
+    {renaming && aliases && <RenameContact key={renaming} phone={renaming} current={aliases.get(renaming) || ""} onClose={() => setRenaming("")}/>}
+  </LabelHighlights></AliasContext.Provider>;
 }

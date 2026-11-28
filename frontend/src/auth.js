@@ -146,7 +146,7 @@ export async function keepSession(){
 export async function authorizedFetch(input,init={}){
   if(alive && Date.now()>expiration-30000) await refreshSession().catch(()=>{});
   if(typeof input==='string' && input.startsWith('/api/')){
-    const globalRoute=/^\/api\/(?:auth\/(?:me|activity|login|refresh|logout|password)|admin\/(?:users|active-users|sessions|whatsapp-numbers|assigned-numbers|offline-requirements|username-availability)|assigned-numbers|assignment-notices|my-campaigns|inboxes\/[\w-]+)(?:[/?]|$)/;
+    const globalRoute=/^\/api\/(?:auth\/(?:me|activity|login|refresh|logout|password)|admin\/(?:users|active-users|sessions|whatsapp-numbers|assigned-numbers|offline-requirements|username-availability)|assigned-numbers|assignment-notices|contact-aliases|my-campaigns|inboxes\/[\w-]+)(?:[/?]|$)/;
     if(!globalRoute.test(input))input=inboxUrl(input);
   }
   let result=await fetch(input,{...init,credentials:'same-origin'});

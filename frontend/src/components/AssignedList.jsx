@@ -4,7 +4,8 @@ import {authorizedFetch,checkSession} from '../auth.js';
 import ContactAvatar from './ContactAvatar.jsx';
 // Regular users: the numbers an admin assigned to them. Direct-chat keys are plain digits, so a click opens that chat.
 const message=err=>err instanceof TypeError?'Could not reach the server. Check your connection and try again.':err.message;
-export default function AssignedList({onOpen,onLoaded,current,disabled}){
+// fresh: customers assigned since the user last opened their chat (shown as "New").
+export default function AssignedList({onOpen,onLoaded,current,disabled,fresh}){
  const [rows,setRows]=useState(null);const[error,setError]=useState('');const[loading,setLoading]=useState(false);
  const live=useRef(true),busy=useRef(null);
  const load=useCallback(()=>{
@@ -38,6 +39,6 @@ export default function AssignedList({onOpen,onLoaded,current,disabled}){
   :!rows.length?<small role="status">No numbers have been assigned to you yet.</small>
   :<ul>{rows.map(row=>{const key=String(row.phoneNumber);
    return <li key={row.id}><button type="button" className="chat-row" disabled={disabled} aria-current={key===current?'true':undefined} onClick={()=>onOpen(key)}>
-    <ContactAvatar contactId={key}/><span className="row-copy"><strong><ContactName id={key}>+{key}</ContactName></strong></span></button></li>;})}</ul>}
+    <ContactAvatar contactId={key}/><span className="row-copy"><strong><ContactName id={key}>+{key}</ContactName></strong></span>{fresh?.has(key)&&<em className="row-new">New</em>}</button></li>;})}</ul>}
  </section>;
 }

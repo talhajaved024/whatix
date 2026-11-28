@@ -76,6 +76,7 @@ export function campaignStore(db){
       const user=await s.get('SELECT USER_NAME,IS_ADMIN FROM users WHERE ID=?',[userId]);
       if(!user || user.IS_ADMIN)throw fail(422,'Choose a regular user');
       let id=await grantId(s,name,phone,userId);
+      const created=!id;
       if(!id){
         id=(await s.run('INSERT INTO campaign_grants(session,campaign_phone,user_id,assigned_at,assigned_by) VALUES(?,?,?,?,?)',[name,phone,userId,now(),actor])).id;
         if(primary){
@@ -87,6 +88,8 @@ export function campaignStore(db){
       await s.run('DELETE FROM campaign_grant_labels WHERE grant_id=?',[id]);
       for(const label of labels??[])await s.run('INSERT INTO campaign_grant_labels VALUES(?,?)',[id,label]);
       changed();
+      // created: the user did not hold this number before (a later call only changes labels).
+      return {created,username:user.USER_NAME};
     }),
     // Move one customer to a single user on this number (the chat list's
     // assignee menu): that user gets it, keeping their assignment if they
@@ -141,8 +144,9 @@ export function campaignStore(db){
 // Mounted inside each inbox router. identity({fresh}) resolves the inbox's
 // current campaign phone; writes name the phone the admin was looking at.
 // onAssigned({username,phoneNumber,campaignPhone,actor}) is told of every customer
-// newly assigned to a user (actor: the admin's username), after it is saved.
-export function campaignRoutes({store,session,primary,identity,adminAccess,readLabels,onAssigned}){
+// newly assigned to a user (actor: the admin's username), after it is saved;
+// onGranted({username,campaignPhone,actor}) of every user newly given this number.
+export function campaignRoutes({store,session,primary,identity,adminAccess,readLabels,onAssigned,onGranted}){
   const router=Router();
   // Telling the user must never undo or fail the assignment itself.
   const assigned=(req,phone,contact)=>{
@@ -171,7 +175,11 @@ export function campaignRoutes({store,session,primary,identity,adminAccess,readL
     const ids=req.body?.labels;
     if(ids!==null && (!Array.isArray(ids)||ids.length>200||ids.some(label=>typeof label!=='string'||!/^[-\w]{1,100}$/.test(label))))throw fail(400,'Send labels as null (every label) or a list of label IDs');
     if(ids?.length){const labels=(await readLabels()).filter(isBusinessLabel);if(ids.some(label=>!labels.some(l=>String(l.id)===label)))throw fail(422,'A selected label is unavailable');}
-    await store.grant(session,phone,id,ids===null?null:[...new Set(ids)],primary,req.userId);
+    const granted=await store.grant(session,phone,id,ids===null?null:[...new Set(ids)],primary,req.userId);
+    if(granted.created){
+      try{Promise.resolve(onGranted?.({username:granted.username,campaignPhone:phone,actor:req.auth.sub})).catch(()=>{});}
+      catch{ /* the number is assigned */ }
+    }
     res.sendStatus(204);
   }));
   router.delete('/campaign-grants/:id',adminAccess,run(async(req,res,phone)=>{

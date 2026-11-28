@@ -1,5 +1,6 @@
 import {ContactHighlight} from "./LabelHighlights.jsx";
-import {useEffect,useRef,useState} from "react";
+import {useContext,useEffect,useRef,useState} from "react";
+import {AliasContext} from "../contact-aliases.js";
 import {authorizedFetch,onAuthChange} from "../auth.js";
 import {onInboxChange} from "../inbox.js";
 import {memberId,phoneId} from "../group-members.js";
@@ -23,8 +24,13 @@ export default function ContactName({id,alternate,known,preferName=false,childre
   const primary = phoneId(id) || memberId(id);
   const secondary = phoneId(alternate) || memberId(alternate);
   const identity = primary + "|" + secondary;
-  const supplied = typeof known === "string" && known.trim() &&
-    !/^\+?[\d\s().-]+(?:@(c\.us|lid|s\.whatsapp\.net))?$/.test(known.trim()) ? known.trim() : "";
+  // The user's own name for this customer (contact-aliases.js) comes before
+  // WhatsApp's, and needs no lookup.
+  const aliases = useContext(AliasContext);
+  const digits = value => /^(\d+)@c\.us$/.exec(value)?.[1];
+  const alias = aliases?.get(digits(primary)) || aliases?.get(digits(secondary)) || "";
+  const supplied = alias || (typeof known === "string" && known.trim() &&
+    !/^\+?[\d\s().-]+(?:@(c\.us|lid|s\.whatsapp\.net))?$/.test(known.trim()) ? known.trim() : "");
   const [result,setResult] = useState(null);
   const element = useRef(null);
   useEffect(() => {
